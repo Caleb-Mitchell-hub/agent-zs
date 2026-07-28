@@ -1,0 +1,20 @@
+{
+  "date": "2026-07-28",
+  "url": "http://172.177.3.43:8001",
+  "healthScore": 95,
+  "issues": [
+    {
+      "id": "ISSUE-001",
+      "title": "curl JSON 解析失败",
+      "severity": "medium",
+      "category": "tool-compatibility"
+    }
+  ],
+  "categoryScores": {
+    "functional": 100,
+    "auth": 100,
+    "performance": 95,
+    "error_handling": 90,
+    "documentation": 85
+  }
+}
