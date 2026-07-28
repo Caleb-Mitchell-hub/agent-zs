@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from app.agents.data_agent import DataAgent
 from app.agents.write_agent import WriteAgent
 from app.memory import session_memory
+from app.memory.task_memory import task_memory
+from app.memory.user_memory import user_memory
 
 logger = logging.getLogger(__name__)
 
@@ -158,8 +160,30 @@ class Orchestrator:
         # 8. 保存任务状态
         await session_memory.update_task_state(session_id, task.model_dump())
 
-        # 9. 保存助手回复
+        # 9. 保存任务历史
+        await task_memory.save_task(
+            task_id=task.task_id,
+            session_id=session_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            task_type=task.task_type.value,
+            agent_name=task.agent_name,
+            input_data=task.input,
+            output_data=task.output,
+            status=task.state.value,
+            error_message=task.error,
+        )
+
+        # 10. 保存助手回复
         await session_memory.add_message(session_id, "assistant", result.get("message", ""))
+
+        # 11. 更新用户最近查询
+        if task_type in [TaskType.QUERY, TaskType.REPORT]:
+            await user_memory.add_recent_query(
+                user_id=user_id,
+                query=user_input,
+                sql=result.get("sql", ""),
+            )
 
         return result
 
