@@ -16,17 +16,176 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/admin")
+from fastapi.responses import HTMLResponse
+
+
+@router.get("/admin", response_class=HTMLResponse)
 async def admin_index():
     """管理页面首页"""
-    return {
-        "status": "ok",
-        "endpoints": {
-            "agents": "/api/v1/admin/agents",
-            "prompts": "/api/v1/admin/prompts",
-            "monitor": "/api/v1/admin/monitor",
-        },
-    }
+    return """
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Agent-Zs 管理中心</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+            .header { background: #1890ff; color: white; padding: 16px 24px; font-size: 20px; }
+            .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+            .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+            .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+            .card h3 { color: #1890ff; margin-bottom: 12px; font-size: 16px; }
+            .card p { color: #666; font-size: 14px; margin-bottom: 8px; }
+            .stat { display: inline-block; margin-right: 20px; }
+            .stat .num { font-size: 24px; font-weight: bold; color: #1890ff; }
+            .stat .label { font-size: 12px; color: #999; }
+            .btn { background: #1890ff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-right: 8px; }
+            .btn:hover { background: #40a9ff; }
+            .btn-danger { background: #ff4d4f; }
+            .btn-danger:hover { background: #ff7875; }
+            .list { margin-top: 12px; }
+            .list-item { padding: 10px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+            .list-item:last-child { border-bottom: none; }
+            .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+            .tag-success { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
+            .tag-info { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
+            .workflow-list { margin-top: 12px; }
+            .workflow-item { padding: 12px; border: 1px solid #f0f0f0; border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
+            .workflow-item:hover { border-color: #1890ff; background: #f0f5ff; }
+            .workflow-item h4 { margin-bottom: 4px; }
+            .workflow-item p { color: #666; font-size: 13px; }
+        </style>
+    </head>
+    <body>
+        <div class="header">Agent-Zs 管理中心</div>
+        <div class="container">
+            <div class="cards">
+                <!-- Agent 管理 -->
+                <div class="card">
+                    <h3>Agent 管理</h3>
+                    <p>配置和监控 Agent</p>
+                    <div id="agents-stats"></div>
+                    <div class="list" id="agents-list"></div>
+                    <button class="btn" onclick="loadAgents()">刷新</button>
+                </div>
+
+                <!-- 工作流管理 -->
+                <div class="card">
+                    <h3>工作流</h3>
+                    <p>管理工作流定义</p>
+                    <div class="workflow-list" id="workflow-list"></div>
+                    <button class="btn" onclick="loadWorkflows()">刷新</button>
+                </div>
+
+                <!-- 监控 -->
+                <div class="card" style="grid-column: 1 / -1;">
+                    <h3>监控数据</h3>
+                    <p>最近 24 小时任务统计</p>
+                    <div id="monitor-stats"></div>
+                    <button class="btn" onclick="loadMonitor()">刷新</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const BASE = '/api/v1';
+
+            async function loadAgents() {
+                try {
+                    const res = await fetch(`${BASE}/admin/agents`);
+                    const data = await res.json();
+                    const list = document.getElementById('agents-list');
+                    const stats = document.getElementById('agents-stats');
+
+                    if (data.agents) {
+                        stats.innerHTML = `<span class="stat"><span class="num">${data.agents.length}</span><span class="label">个 Agent</span></span>`;
+                        list.innerHTML = data.agents.map(a => `
+                            <div class="list-item">
+                                <span><strong>${a.name}</strong></span>
+                                <span>
+                                    <span class="tag ${a.enabled ? 'tag-success' : 'tag-info'}">${a.enabled ? '已启用' : '已禁用'}</span>
+                                    <span class="tag tag-info">${a.model}</span>
+                                </span>
+                            </div>
+                        `).join('');
+                    }
+                } catch(e) {
+                    console.error('加载 Agent 失败:', e);
+                }
+            }
+
+            async function loadWorkflows() {
+                try {
+                    const res = await fetch(`${BASE}/workflow/list`);
+                    const data = await res.json();
+                    const list = document.getElementById('workflow-list');
+
+                    if (data.workflows) {
+                        list.innerHTML = data.workflows.map(w => `
+                            <div class="workflow-item" onclick="runWorkflow('${w.workflow_id}')">
+                                <h4>${w.name}</h4>
+                                <p>${w.description}</p>
+                                <p style="color:#999;font-size:12px">${w.steps} 个步骤</p>
+                            </div>
+                        `).join('');
+                    }
+                } catch(e) {
+                    console.error('加载工作流失败:', e);
+                }
+            }
+
+            async function loadMonitor() {
+                try {
+                    const res = await fetch(`${BASE}/admin/monitor`);
+                    const data = await res.json();
+                    const stats = document.getElementById('monitor-stats');
+
+                    if (data.monitor && data.monitor.stats) {
+                        const total = data.monitor.stats.reduce((sum, s) => sum + s.count, 0);
+                        stats.innerHTML = `
+                            <span class="stat"><span class="num">${total}</span><span class="label">总任务数</span></span>
+                        `;
+
+                        if (data.monitor.stats.length === 0) {
+                            stats.innerHTML += '<p style="color:#999;margin-top:12px">暂无数据</p>';
+                        }
+                    } else {
+                        stats.innerHTML = '<p style="color:#999">暂无监控数据</p>';
+                    }
+                } catch(e) {
+                    console.error('加载监控失败:', e);
+                }
+            }
+
+            async function runWorkflow(id) {
+                if (!confirm(`确认执行工作流: ${id}?`)) return;
+
+                try {
+                    const res = await fetch(`${BASE}/workflow/execute`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer test-token-1234567890'
+                        },
+                        body: JSON.stringify({ workflow_id: id })
+                    });
+                    const data = await res.json();
+                    alert(data.message || '执行完成');
+                } catch(e) {
+                    alert('执行失败: ' + e.message);
+                }
+            }
+
+            // 页面加载时初始化
+            loadAgents();
+            loadWorkflows();
+            loadMonitor();
+        </script>
+    </body>
+    </html>
+    """
 
 
 class AgentConfig(BaseModel):
