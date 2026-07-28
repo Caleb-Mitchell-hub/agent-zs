@@ -44,6 +44,9 @@ class SearchTool:
             dict: 检索结果
         """
         try:
+            # 0. 确保集合存在
+            await self.create_collection()
+
             # 1. 将查询文本转换为向量
             query_vector = await self._get_embedding(query)
 
