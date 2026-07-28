@@ -9,6 +9,7 @@ from pydantic import BaseModel
 # 查询相关
 class QueryRequest(BaseModel):
     question: str
+    session_id: str | None = None
     user_id: int | None = None
     tenant_id: int | None = None
 

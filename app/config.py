@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     db_pool_recycle: int = 3600
 
+    # Redis 配置
+    redis_host: str = "172.177.3.43"
+    redis_port: int = 6381
+    redis_db: int = 0
+    redis_password: str = ""
+
     # 查询沙箱配置
     sql_statement_timeout: int = 10  # 秒
     sql_max_rows: int = 1000
