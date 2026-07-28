@@ -46,6 +46,7 @@ DOCUMENT_TYPES = {
         "optional_fields": ["total_amount", "discount_amount", "pay_amount", "delivery_date", "remark"],
         "status_field": "status",
         "default_status": "DRAFT",
+        "no_field": "order_no",
     },
     "sales_order": {
         "table": "sales_order",
@@ -53,6 +54,7 @@ DOCUMENT_TYPES = {
         "optional_fields": ["total_amount", "discount_amount", "pay_amount", "delivery_date", "remark"],
         "status_field": "status",
         "default_status": "DRAFT",
+        "no_field": "order_no",
     },
     "stock_in_order": {
         "table": "stock_in_order",
@@ -60,6 +62,7 @@ DOCUMENT_TYPES = {
         "optional_fields": ["source_type", "source_no", "total_amount", "total_quantity", "remark"],
         "status_field": "status",
         "default_status": "DRAFT",
+        "no_field": "in_no",
     },
     "stock_out_order": {
         "table": "stock_out_order",
@@ -67,6 +70,7 @@ DOCUMENT_TYPES = {
         "optional_fields": ["source_type", "source_no", "total_amount", "total_quantity", "remark"],
         "status_field": "status",
         "default_status": "DRAFT",
+        "no_field": "out_no",
     },
 }
 
@@ -78,18 +82,7 @@ async def create_document(
     tenant_id: int,
     idempotency_key: str = None,
 ) -> DocumentResult:
-    """创建单据
-
-    Args:
-        doc_type: 单据类型 (purchase_order, sales_order, stock_in_order, stock_out_order)
-        payload: 单据数据
-        user_id: 操作人 ID
-        tenant_id: 租户 ID
-        idempotency_key: 幂等键（防止重复创建）
-
-    Returns:
-        DocumentResult: 创建结果
-    """
+    """创建单据"""
     # 验证单据类型
     if doc_type not in DOCUMENT_TYPES:
         return DocumentResult(
@@ -115,35 +108,25 @@ async def create_document(
             message=f"缺少必填字段: {', '.join(missing_fields)}",
         )
 
-    # 生成单据 ID
-    doc_id = f"{doc_type.upper()}-{uuid.uuid4().hex[:8].upper()}"
+    # 生成单据编号
+    doc_no = f"{doc_type.upper()}-{uuid.uuid4().hex[:8].upper()}"
 
     try:
         async for session in get_session():
-            # 检查幂等性
-            if idempotency_key:
-                existing = await session.execute(
-                    text("SELECT doc_id FROM audit_log WHERE idempotency_key = :key"),
-                    {"key": idempotency_key},
-                )
-                existing_row = existing.fetchone()
-                if existing_row:
-                    return DocumentResult(
-                        doc_id=existing_row[0],
-                        doc_type=doc_type,
-                        status="ok",
-                        message="单据已存在（幂等）",
-                    )
-
             # 构建 INSERT 语句
-            fields = ["id", "tenant_id", "created_by", "created_at"]
-            values = [":id", ":tenant_id", ":created_by", ":created_at"]
+            fields = ["tenant_id", "created_by", "created_at"]
+            values = [":tenant_id", ":created_by", ":created_at"]
             params = {
-                "id": doc_id,
                 "tenant_id": tenant_id,
                 "created_by": user_id,
                 "created_at": datetime.now(),
             }
+
+            # 添加单据编号
+            if config["no_field"]:
+                fields.append(config["no_field"])
+                values.append(f":no_field")
+                params["no_field"] = doc_no
 
             # 添加单据字段
             for field in config["required_fields"] + config["optional_fields"]:
@@ -162,30 +145,31 @@ async def create_document(
             sql = f"INSERT INTO {config['table']} ({', '.join(fields)}) VALUES ({', '.join(values)})"
             await session.execute(text(sql), params)
 
-            # 记录审计日志
+            # 记录审计日志（使用现有表结构）
             await session.execute(
                 text("""
-                    INSERT INTO audit_log (doc_type, doc_id, action, user_id, tenant_id, payload, idempotency_key, created_at)
-                    VALUES (:doc_type, :doc_id, :action, :user_id, :tenant_id, :payload, :idempotency_key, :created_at)
+                    INSERT INTO audit_log (tenant_id, user_id, module, operation, entity_type, entity_no, content, status, created_at)
+                    VALUES (:tenant_id, :user_id, :module, :operation, :entity_type, :entity_no, :content, :status, :created_at)
                 """),
                 {
-                    "doc_type": doc_type,
-                    "doc_id": doc_id,
-                    "action": "CREATE",
-                    "user_id": user_id,
                     "tenant_id": tenant_id,
-                    "payload": str(payload),
-                    "idempotency_key": idempotency_key,
+                    "user_id": user_id,
+                    "module": doc_type,
+                    "operation": "CREATE",
+                    "entity_type": doc_type,
+                    "entity_no": doc_no,
+                    "content": str(payload),
+                    "status": "SUCCESS",
                     "created_at": datetime.now(),
                 },
             )
 
             await session.commit()
 
-            logger.info(f"单据创建成功: {doc_type} {doc_id}")
+            logger.info(f"单据创建成功: {doc_type} {doc_no}")
 
             return DocumentResult(
-                doc_id=doc_id,
+                doc_id=doc_no,
                 doc_type=doc_type,
                 status="ok",
                 message=f"单据创建成功，状态: {config['default_status']}",
@@ -210,9 +194,11 @@ async def get_document(doc_type: str, doc_id: str) -> dict | None:
 
     try:
         async for session in get_session():
+            # 根据单据编号查询
+            no_field = config.get("no_field", "id")
             result = await session.execute(
-                text(f"SELECT * FROM {config['table']} WHERE id = :id"),
-                {"id": doc_id},
+                text(f"SELECT * FROM {config['table']} WHERE {no_field} = :no LIMIT 1"),
+                {"no": doc_id},
             )
             row = result.mappings().first()
             return dict(row) if row else None
@@ -229,13 +215,7 @@ async def update_document_status(
     user_id: int,
     remark: str = None,
 ) -> DocumentResult:
-    """更新单据状态
-
-    支持的状态流转：
-    - DRAFT -> SUBMITTED -> APPROVED -> COMPLETED
-    - DRAFT -> CANCELLED
-    - SUBMITTED -> REJECTED -> DRAFT
-    """
+    """更新单据状态"""
     if doc_type not in DOCUMENT_TYPES:
         return DocumentResult(
             doc_id=doc_id,
@@ -257,9 +237,10 @@ async def update_document_status(
     try:
         async for session in get_session():
             # 获取当前状态
+            no_field = config.get("no_field", "id")
             result = await session.execute(
-                text(f"SELECT {config['status_field']} FROM {config['table']} WHERE id = :id"),
-                {"id": doc_id},
+                text(f"SELECT {config['status_field']} FROM {config['table']} WHERE {no_field} = :no LIMIT 1"),
+                {"no": doc_id},
             )
             row = result.fetchone()
             if not row:
@@ -292,22 +273,25 @@ async def update_document_status(
 
             # 更新状态
             await session.execute(
-                text(f"UPDATE {config['table']} SET {config['status_field']} = :status, updated_at = :updated_at WHERE id = :id"),
-                {"status": new_status, "updated_at": datetime.now(), "id": doc_id},
+                text(f"UPDATE {config['table']} SET {config['status_field']} = :status, updated_at = :updated_at WHERE {no_field} = :no"),
+                {"status": new_status, "updated_at": datetime.now(), "no": doc_id},
             )
 
             # 记录审计日志
             await session.execute(
                 text("""
-                    INSERT INTO audit_log (doc_type, doc_id, action, user_id, payload, created_at)
-                    VALUES (:doc_type, :doc_id, :action, :user_id, :payload, :created_at)
+                    INSERT INTO audit_log (tenant_id, user_id, module, operation, entity_type, entity_no, content, status, created_at)
+                    VALUES (:tenant_id, :user_id, :module, :operation, :entity_type, :entity_no, :content, :status, :created_at)
                 """),
                 {
-                    "doc_type": doc_type,
-                    "doc_id": doc_id,
-                    "action": f"STATUS_CHANGE:{current_status}->{new_status}",
+                    "tenant_id": 1,
                     "user_id": user_id,
-                    "payload": remark or "",
+                    "module": doc_type,
+                    "operation": f"STATUS_CHANGE:{current_status}->{new_status}",
+                    "entity_type": doc_type,
+                    "entity_no": doc_id,
+                    "content": remark or "",
+                    "status": "SUCCESS",
                     "created_at": datetime.now(),
                 },
             )

@@ -22,12 +22,13 @@ class RAGResult:
     def __init__(self, chunks: list[dict], query: str):
         self.chunks = chunks
         self.query = query
+        self.count = len(chunks)
 
     def to_dict(self) -> dict:
         return {
             "chunks": self.chunks,
             "query": self.query,
-            "count": len(self.chunks),
+            "count": self.count,
         }
 
 
