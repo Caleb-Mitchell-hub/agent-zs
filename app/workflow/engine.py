@@ -60,7 +60,7 @@ class WorkflowInstance(BaseModel):
 
 # 预定义工作流
 WORKFLOW_DEFINITIONS = {
-    "采购订单全流程": WorkflowDefinition(
+    "purchase_order_full": WorkflowDefinition(
         workflow_id="purchase_order_full",
         name="采购订单全流程",
         description="创建采购订单 -> 提交审批 -> 审批通过 -> 入库",
@@ -88,7 +88,7 @@ WORKFLOW_DEFINITIONS = {
             ),
         ],
     ),
-    "销售报表生成": WorkflowDefinition(
+    "sales_report": WorkflowDefinition(
         workflow_id="sales_report",
         name="销售报表生成",
         description="查询销售数据 -> 生成报表 -> 发送通知",
