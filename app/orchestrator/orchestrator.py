@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app.agents.data_agent import DataAgent
 from app.agents.write_agent import WriteAgent
+from app.agents.knowledge_agent import KnowledgeAgent
 from app.memory import session_memory
 from app.memory.task_memory import task_memory
 from app.memory.user_memory import user_memory
@@ -75,6 +76,7 @@ class Orchestrator:
     def __init__(self):
         self.data_agent = DataAgent()
         self.write_agent = WriteAgent()
+        self.knowledge_agent = KnowledgeAgent()
 
     async def process(self, user_input: str, session_id: str, user_id: int, tenant_id: int) -> dict:
         """处理用户请求
@@ -135,6 +137,16 @@ class Orchestrator:
                     tenant_id=tenant_id,
                 )
                 task.agent_name = "write_agent"
+            elif task_type == TaskType.KNOWLEDGE:
+                result = await self.knowledge_agent.execute(
+                    user_input=user_input,
+                    messages=messages,
+                    context=context,
+                    session_id=session_id,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                )
+                task.agent_name = "knowledge_agent"
             else:
                 result = {
                     "status": "error",
@@ -197,33 +209,69 @@ class Orchestrator:
         Returns:
             TaskType: 任务类型
         """
-        # 简单的关键词匹配（后续可以用 LLM 优化）
-        user_input_lower = user_input.lower()
+        # 使用 LLM 进行意图识别（更准确）
+        try:
+            from app.agent.llm_client import llm_client
 
-        # 查询相关
-        query_keywords = ["查询", "查", "统计", "分析", "多少", "几个", "哪些", "排名", "排行"]
-        if any(kw in user_input_lower for kw in query_keywords):
+            prompt = f"""你是一个意图识别专家。根据用户的输入，判断用户想要做什么。
+
+## 用户输入
+{user_input}
+
+## 可选意图
+- query: 查询数据、统计、分析（例如："查询销售额"、"统计库存"、"分析趋势"）
+- report: 生成报表、图表（例如："生成销售报表"、"制作图表"）
+- create: 创建单据（例如："创建采购订单"、"新建销售订单"）
+- update: 更新单据状态（例如："审批采购订单"、"提交销售订单"）
+- knowledge: 查询知识、规则、流程（例如："采购流程是什么"、"如何审批订单"）
+
+## 输出格式
+只返回意图类型，不要解释。例如: query"""
+
+            response = await llm_client.chat(prompt)
+            intent = response.strip().lower()
+
+            # 映射到 TaskType
+            intent_map = {
+                "query": TaskType.QUERY,
+                "report": TaskType.REPORT,
+                "create": TaskType.CREATE,
+                "update": TaskType.UPDATE,
+                "knowledge": TaskType.KNOWLEDGE,
+            }
+
+            return intent_map.get(intent, TaskType.QUERY)
+
+        except Exception as e:
+            logger.warning(f"LLM 意图识别失败，使用关键词匹配: {e}")
+
+            # 降级到关键词匹配
+            user_input_lower = user_input.lower()
+
+            # 查询相关
+            query_keywords = ["查询", "查", "统计", "分析", "多少", "几个", "哪些", "排名", "排行"]
+            if any(kw in user_input_lower for kw in query_keywords):
+                return TaskType.QUERY
+
+            # 报表相关
+            report_keywords = ["报表", "报告", "图表", "可视化", "趋势"]
+            if any(kw in user_input_lower for kw in report_keywords):
+                return TaskType.REPORT
+
+            # 创建单据相关
+            create_keywords = ["创建", "新建", "添加", "录入", "下单"]
+            if any(kw in user_input_lower for kw in create_keywords):
+                return TaskType.CREATE
+
+            # 更新单据相关
+            update_keywords = ["更新", "修改", "审批", "提交", "驳回"]
+            if any(kw in user_input_lower for kw in update_keywords):
+                return TaskType.UPDATE
+
+            # 知识检索相关
+            knowledge_keywords = ["知识", "手册", "规则", "怎么", "如何", "教程", "流程"]
+            if any(kw in user_input_lower for kw in knowledge_keywords):
+                return TaskType.KNOWLEDGE
+
+            # 默认为查询
             return TaskType.QUERY
-
-        # 报表相关
-        report_keywords = ["报表", "报告", "图表", "可视化", "趋势"]
-        if any(kw in user_input_lower for kw in report_keywords):
-            return TaskType.REPORT
-
-        # 创建单据相关
-        create_keywords = ["创建", "新建", "添加", "录入", "下单"]
-        if any(kw in user_input_lower for kw in create_keywords):
-            return TaskType.CREATE
-
-        # 更新单据相关
-        update_keywords = ["更新", "修改", "审批", "提交", "驳回"]
-        if any(kw in user_input_lower for kw in update_keywords):
-            return TaskType.UPDATE
-
-        # 知识检索相关
-        knowledge_keywords = ["知识", "手册", "规则", "怎么", "如何", "教程"]
-        if any(kw in user_input_lower for kw in knowledge_keywords):
-            return TaskType.KNOWLEDGE
-
-        # 默认为查询
-        return TaskType.QUERY

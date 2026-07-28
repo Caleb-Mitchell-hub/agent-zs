@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: str = ""
 
+    # Qdrant 向量数据库配置
+    qdrant_url: str = "http://172.177.3.43:6333"
+    qdrant_collection: str = "knowledge_base"
+
     # 查询沙箱配置
     sql_statement_timeout: int = 10  # 秒
     sql_max_rows: int = 1000
