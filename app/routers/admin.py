@@ -16,6 +16,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/admin")
+async def admin_index():
+    """管理页面首页"""
+    return {
+        "status": "ok",
+        "endpoints": {
+            "agents": "/api/v1/admin/agents",
+            "prompts": "/api/v1/admin/prompts",
+            "monitor": "/api/v1/admin/monitor",
+        },
+    }
+
+
 class AgentConfig(BaseModel):
     """Agent 配置"""
     name: str
