@@ -1,122 +1,15 @@
-"""写操作端点 - 单据创建"""
+"""写操作端点 - 单据管理"""
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.gateway.auth import verify_token
-from app.gateway.rate_limit import check_rate_limit
-from app.tools.create_document_tool import (
-    create_document,
-    get_document,
-    update_document_status,
-    DOCUMENT_TYPES,
-)
+from app.tools.erp_api_tool import DOCUMENT_TYPES
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-class CreateDocumentRequest(BaseModel):
-    """创建单据请求"""
-    doc_type: str  # purchase_order, sales_order, stock_in_order, stock_out_order
-    payload: dict
-    idempotency_key: str | None = None
-
-
-class UpdateStatusRequest(BaseModel):
-    """更新状态请求"""
-    new_status: str
-    remark: str | None = None
-
-
-class DocumentResponse(BaseModel):
-    """单据响应"""
-    status: str
-    doc_id: str | None = None
-    doc_type: str | None = None
-    message: str | None = None
-    data: dict | None = None
-
-
-@router.post("/create", response_model=DocumentResponse)
-async def create_doc(
-    req: CreateDocumentRequest,
-    user_info: dict = Depends(verify_token),
-    _: None = Depends(check_rate_limit),
-):
-    """创建单据
-
-    支持的单据类型：
-    - purchase_order: 采购订单
-    - sales_order: 销售订单
-    - stock_in_order: 入库单
-    - stock_out_order: 出库单
-    """
-    logger.info(f"用户 {user_info['user_id']} 创建 {req.doc_type}")
-
-    result = await create_document(
-        doc_type=req.doc_type,
-        payload=req.payload,
-        user_id=user_info["user_id"],
-        tenant_id=user_info.get("tenant_id", 1),
-        idempotency_key=req.idempotency_key,
-    )
-
-    return DocumentResponse(**result.to_dict())
-
-
-@router.get("/document/{doc_type}/{doc_id}", response_model=DocumentResponse)
-async def get_doc(
-    doc_type: str,
-    doc_id: str,
-    user_info: dict = Depends(verify_token),
-):
-    """获取单据详情"""
-    logger.info(f"用户 {user_info['user_id']} 查询 {doc_type} {doc_id}")
-
-    doc = await get_document(doc_type, doc_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail={
-            "status": "error",
-            "message": f"单据不存在: {doc_id}",
-            "error_code": "NOT_FOUND",
-        })
-
-    return DocumentResponse(
-        status="ok",
-        doc_id=doc_id,
-        doc_type=doc_type,
-        data=doc,
-    )
-
-
-@router.put("/document/{doc_type}/{doc_id}/status", response_model=DocumentResponse)
-async def update_status(
-    doc_type: str,
-    doc_id: str,
-    req: UpdateStatusRequest,
-    user_info: dict = Depends(verify_token),
-    _: None = Depends(check_rate_limit),
-):
-    """更新单据状态
-
-    状态流转：
-    - DRAFT -> SUBMITTED -> APPROVED -> COMPLETED
-    - DRAFT -> CANCELLED
-    - SUBMITTED -> REJECTED -> DRAFT
-    """
-    logger.info(f"用户 {user_info['user_id']} 更新 {doc_type} {doc_id} 状态为 {req.new_status}")
-
-    result = await update_document_status(
-        doc_type=doc_type,
-        doc_id=doc_id,
-        new_status=req.new_status,
-        user_id=user_info["user_id"],
-        remark=req.remark,
-    )
-
-    return DocumentResponse(**result.to_dict())
 
 
 @router.get("/document/types")
@@ -126,3 +19,113 @@ async def get_document_types():
         "status": "ok",
         "types": list(DOCUMENT_TYPES.keys()),
     }
+
+
+@router.get("/document/{doc_type}")
+async def list_documents(
+    doc_type: str,
+    status: str = None,
+    limit: int = 50,
+    user_info: dict = Depends(verify_token),
+):
+    """查询单据列表
+
+    Args:
+        doc_type: 单据类型
+        status: 状态过滤
+        limit: 返回数量
+    """
+    if doc_type not in DOCUMENT_TYPES:
+        return {"status": "error", "message": f"不支持的单据类型: {doc_type}"}
+
+    from sqlalchemy import text
+    from app.db.session import get_session
+
+    try:
+        async for session in get_session():
+            table = DOCUMENT_TYPES[doc_type]["table"]
+            no_field = DOCUMENT_TYPES[doc_type].get("no_field", "id")
+
+            if status:
+                result = await session.execute(
+                    text(f"SELECT * FROM {table} WHERE status = :status AND (deleted = 0 OR deleted IS NULL) ORDER BY created_at DESC LIMIT :limit"),
+                    {"status": status, "limit": limit},
+                )
+            else:
+                result = await session.execute(
+                    text(f"SELECT * FROM {table} WHERE (deleted = 0 OR deleted IS NULL) ORDER BY created_at DESC LIMIT :limit"),
+                    {"limit": limit},
+                )
+
+            rows = result.mappings().all()
+
+            # 转换为列表
+            documents = []
+            for row in rows:
+                doc = dict(row)
+                # 处理日期和 Decimal
+                for k, v in doc.items():
+                    from datetime import datetime, date
+                    if isinstance(v, (datetime, date)):
+                        doc[k] = str(v)
+                    from decimal import Decimal
+                    if isinstance(v, Decimal):
+                        doc[k] = float(v)
+                documents.append(doc)
+
+            return {
+                "status": "ok",
+                "doc_type": doc_type,
+                "count": len(documents),
+                "documents": documents,
+            }
+
+    except Exception as e:
+        logger.error(f"查询单据失败: {e}", exc_info=True)
+        return {"status": "error", "message": f"查询失败: {str(e)}"}
+
+
+@router.get("/document/{doc_type}/{doc_no}")
+async def get_document(
+    doc_type: str,
+    doc_no: str,
+    user_info: dict = Depends(verify_token),
+):
+    """查询单据详情"""
+    if doc_type not in DOCUMENT_TYPES:
+        return {"status": "error", "message": f"不支持的单据类型: {doc_type}"}
+
+    from sqlalchemy import text
+    from app.db.session import get_session
+
+    try:
+        async for session in get_session():
+            table = DOCUMENT_TYPES[doc_type]["table"]
+            no_field = DOCUMENT_TYPES[doc_type].get("no_field", "id")
+
+            result = await session.execute(
+                text(f"SELECT * FROM {table} WHERE `{no_field}` = :doc_no"),
+                {"doc_no": doc_no},
+            )
+            row = result.mappings().first()
+
+            if not row:
+                return {"status": "error", "message": f"单据不存在: {doc_no}"}
+
+            doc = dict(row)
+            from datetime import datetime, date
+            from decimal import Decimal
+            for k, v in doc.items():
+                if isinstance(v, (datetime, date)):
+                    doc[k] = str(v)
+                if isinstance(v, Decimal):
+                    doc[k] = float(v)
+
+            return {
+                "status": "ok",
+                "document": doc,
+            }
+
+    except Exception as e:
+        logger.error(f"查询单据失败: {e}", exc_info=True)
+        return {"status": "error", "message": f"查询失败: {str(e)}"}
