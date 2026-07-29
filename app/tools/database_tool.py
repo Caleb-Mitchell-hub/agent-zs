@@ -103,6 +103,10 @@ NL_TO_SQL_PROMPT = """你是一个 SQL 专家。根据用户的自然语言问�
    - 例如：address LIKE '%北京%'
    - 不要用仓库名称 warehouse_name 来匹配区域
 7. 只有明确说"仓库名称"时才用 warehouse_name LIKE '%关键词%'
+8. 库存查询规则：
+   - 查询"某地的库存"时，需要 JOIN warehouse 和 inventory 表
+   - 返回每个仓库的每个 SKU 的库存数量
+   - SQL 示例：SELECT w.warehouse_name, i.quantity FROM inventory i JOIN warehouse w ON i.warehouse_id = w.id WHERE w.address LIKE '%北京%'
 
 ## SQL"""
 
