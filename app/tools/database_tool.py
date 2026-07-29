@@ -98,8 +98,11 @@ NL_TO_SQL_PROMPT = """你是一个 SQL 专家。根据用户的自然语言问�
 3. 只查询业务相关字段，不要查询 id, tenant_id, deleted 等系统字段
 4. 如果需要多表关联，使用正确的 JOIN 条件
 5. 如果问题不明确，返回: CLARIFY: <需要澄清的问题>
-6. 对于名称字段（如仓库名称 warehouse_name、供应商名称 supplier_name、客户名称 customer_name），使用 LIKE '%关键词%' 进行模糊匹配
-7. 例如用户说"北京市"，应该用 warehouse_name LIKE '%北京%' 而不是 region_path LIKE '%北京市%'
+6. 地名/区域查询规则：
+   - 用户说"北京"、"上海市"等区域名时，应该按地址 address 字段模糊匹配
+   - 例如：address LIKE '%北京%'
+   - 不要用仓库名称 warehouse_name 来匹配区域
+7. 只有明确说"仓库名称"时才用 warehouse_name LIKE '%关键词%'
 
 ## SQL"""
 
