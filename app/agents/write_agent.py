@@ -79,6 +79,7 @@ class WriteAgent:
             # 1. 提取参数
             prompt = EXTRACT_PARAMS_PROMPT.format(user_input=user_input)
             response = await llm_client.chat(prompt)
+            logger.info(f"LLM 响应: {response}")
 
             # 解析 JSON（更健壮的解析）
             try:
