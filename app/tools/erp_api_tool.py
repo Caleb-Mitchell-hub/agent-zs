@@ -166,9 +166,64 @@ class ErpApiTool:
         tenant_id: int,
     ) -> dict:
         """更新单据状态"""
-        # TODO: 实现单据状态更新
-        return {
-            "status": "error",
-            "message": "单据更新功能尚未实现",
-            "error_code": "NOT_IMPLEMENTED",
-        }
+        if doc_type not in DOCUMENT_TYPES:
+            return {
+                "status": "error",
+                "message": f"不支持的单据类型: {doc_type}",
+                "error_code": "INVALID_DOC_TYPE",
+            }
+
+        config = DOCUMENT_TYPES[doc_type]
+        doc_id = params.get("doc_id")
+        new_status = params.get("status")
+
+        if not doc_id or not new_status:
+            return {
+                "status": "error",
+                "message": "缺少 doc_id 或 status 参数",
+                "error_code": "MISSING_PARAMS",
+            }
+
+        try:
+            async for session in get_session():
+                # 更新状态
+                await session.execute(
+                    text(f"UPDATE {config['table']} SET status = :status, updated_at = :updated_at WHERE id = :id"),
+                    {"status": new_status, "updated_at": datetime.now(), "id": doc_id},
+                )
+
+                # 记录审计日志
+                await session.execute(
+                    text("""
+                        INSERT INTO audit_log (tenant_id, user_id, module, operation, entity_type, entity_no, content, status, created_at)
+                        VALUES (:tenant_id, :user_id, :module, :operation, :entity_type, :entity_no, :content, :status, :created_at)
+                    """),
+                    {
+                        "tenant_id": tenant_id,
+                        "user_id": user_id,
+                        "module": doc_type,
+                        "operation": "UPDATE_STATUS",
+                        "entity_type": doc_type,
+                        "entity_no": str(doc_id),
+                        "content": json.dumps({"new_status": new_status}),
+                        "status": "SUCCESS",
+                        "created_at": datetime.now(),
+                    },
+                )
+
+                await session.commit()
+
+                logger.info(f"单据状态更新: {doc_type} {doc_id} -> {new_status}")
+
+                return {
+                    "status": "ok",
+                    "message": f"状态已更新: {new_status}",
+                }
+
+        except Exception as e:
+            logger.error(f"单据状态更新失败: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "message": f"状态更新失败: {str(e)}",
+                "error_code": "UPDATE_ERROR",
+            }
