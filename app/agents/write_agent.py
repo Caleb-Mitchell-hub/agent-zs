@@ -130,6 +130,10 @@ class WriteAgent:
                         "order_date": "订单日期（如：今天、明天、2026-01-01）",
                         "in_type": "入库类型（如：采购入库、退货入库）",
                         "out_type": "出库类型（如：销售出库、领料出库）",
+                        "expense_type": "报销类型（如：差旅费、办公费、招待费）",
+                        "amount": "报销金额",
+                        "expense_date": "费用发生日期",
+                        "description": "费用说明",
                     }
                     missing_fields.append(field_names.get(field, field))
 
