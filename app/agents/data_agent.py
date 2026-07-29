@@ -55,10 +55,11 @@ class DataAgent:
             )
 
             # 2. 更新上下文
+            data = result.get("data") or []
             await session_memory.update_context(session_id, {
                 "last_query": user_input,
                 "last_sql": result.get("sql"),
-                "last_result_count": len(result.get("data", [])),
+                "last_result_count": len(data),
             })
 
             return result
