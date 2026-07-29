@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.logging_config import setup_logging
 from app.middleware import RequestLoggingMiddleware, ExceptionHandlerMiddleware
-from app.routers import health, query, report, write, rag, admin, workflow
+from app.routers import health, query, report, write, rag, admin, workflow, frontend
 
 # 配置日志
 setup_logging(debug=settings.debug)
@@ -79,6 +79,7 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(ExceptionHandlerMiddleware)
 
 # 注册路由
+app.include_router(frontend.router, tags=["前端"])
 app.include_router(health.router, tags=["健康检查"])
 app.include_router(query.router, prefix="/api/v1", tags=["查询"])
 app.include_router(report.router, prefix="/api/v1", tags=["报表"])
