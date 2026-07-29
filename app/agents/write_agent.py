@@ -110,6 +110,16 @@ class WriteAgent:
             doc_type = doc_info.get("doc_type")
             params = doc_info.get("params", {})
 
+            # 字段名映射（LLM 可能返回不同的字段名）
+            field_aliases = {
+                "date": "expense_date",
+                "expense_date": "expense_date",
+                "费用日期": "expense_date",
+            }
+            for key, value in list(params.items()):
+                if key in field_aliases:
+                    params[field_aliases[key]] = value
+
             # 2. 验证单据类型
             if not doc_type or doc_type not in DOC_TYPE_FIELDS:
                 supported = "、".join([v["name"] for v in DOC_TYPE_FIELDS.values()])
