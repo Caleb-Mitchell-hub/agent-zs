@@ -17,6 +17,49 @@
 - 不做端到端的无监督自动决策(涉及资金/审批类操作需要人工确认环节)
 - 不替代 ERP 本身的复杂业务逻辑,Agent 只做"编排+调用",不重复实现业务规则
 
+### 1.4 现状系统概览与能力差距(根据已有代码/接口文档更新)
+
+根据已提供的《PC端AI助手模块设计方案与接口文档》《小程序端AI模块设计方案与接口文档》,当前系统**并非从零开始**,而是已有一套可用的基础链路。这一发现对第四、五、七章的具体方案有实质性修正,先在此说明现状,后续章节中标注"已有/需新增"。
+
+**现状架构**(与本方案第四章"独立微服务"的建议高度吻合,已是正确路径,不需要推翻重来):
+
+```
+浏览器/小程序 → Java 网关(wms-backend:8080,JWT鉴权+权限校验+可信头转发)
+             → Python AI Backend(wms-ai-backend:8091,FastAPI)
+             → Dify(工作流/对话引擎) + RAGFlow(知识库检索引擎)
+             → MySQL(wms库,5张 ai_* 表)
+```
+
+**已具备的能力**:
+
+| 能力 | 现状 |
+|---|---|
+| 对话与 SSE 流式响应 | 已实现,PC端走 `/api/ai/chat/workflow/stream`,小程序端走 `wx.request(enableChunked:true)` + 自研 SSE 分片解析器,本方案早前讨论的"小程序流式方案该怎么选"已经有确定答案,不需要再论证 |
+| 会话与消息持久化 | 已实现,`ai_conversation` / `ai_message` 两张表,本地 MySQL 为权威数据源,Dify 侧仅作为计算引擎,并已有 `ai_external_conversation_ref` 做外部会话映射 |
+| 保留期与生命周期管理 | 已实现,MINI 90天 / PC 365天自动归档,定时任务(APScheduler)每日执行,收藏/置顶可永久保留 |
+| 审计日志 | 已实现,`ai_audit_log` 表,append-only,记录 SEND_MESSAGE / CONVERSATION_DELETE 等操作 |
+| 跨端会话同步 | 已实现,`ai_conversation_link` 表支持会话在 PC/小程序间的同步与迁移,比本方案原设计更完整 |
+| 鉴权 | 已实现,"Java 网关做 JWT 验签+权限校验,Python 层信任可信头"的模式,比本方案原先泛泛而谈的"SSO/RBAC"更具体,后续按此模式扩展即可 |
+| RAG 检索 | 已实现,基于 **RAGFlow**(数据集/文档/检索 API 均已封装),不需要按本方案 7.6 节从零设计切分/向量化流程 |
+| 多端配置管理 | 已实现,PC 管理页可对 MINI/PC 两端独立配置 Dify Provider、API Key(Fernet加密)、超时等 |
+| 部署 | 已实现,Docker 容器化,Java/Python/MySQL 挂在 `project-10_wms-network`,Python 侧额外双网卡接入 `docker_default` 访问 Dify/RAGFlow,nginx 已针对 SSE 做好 `proxy_buffering off` 等配置 |
+
+**尚未具备、需要新增的能力**(即本方案真正的增量工作范围):
+
+| 能力 | 现状 | 对应本方案章节 |
+|---|---|---|
+| 工具调用 / Agent 执行引擎 | 前端已有 `AgentPlaceholder.vue`(能力卡片:数据分析/智能问答/文档检索/流程编排;工具列表:数据库查询/API调用/代码执行/文档解析),但**明确是占位组件,后端未实现任何工具调用逻辑** | 5.1、5.2 |
+| ERP 写操作(建单等) | 未实现,当前链路只有对话和知识库检索,没有任何调用 ERP 业务接口的能力 | 4.3、5.6 |
+| 幂等与断点恢复机制 | 未实现,当前 SSE 中断后只能重新发起对话,没有任务级 checkpoint / 幂等键设计 | 5.9、7.2、7.3、7.4 |
+| 长期记忆/用户画像 | 未实现,现有"记忆"仅是会话历史消息(`ai_message`),没有跨会话的偏好沉淀 | 5.3、7.5 |
+| 图片建单(多模态) | 未实现,`api.ts` 目前只有通用文件上传(`AI_ASSISTANT` 业务类型),没有 OCR/视觉抽取和结构化落库逻辑 | 5.5、9.1 |
+| 报表生成("一句话出报表") | 未实现 | 5.7 |
+| 任务中心 | 未实现,当前是纯对话式交互,没有独立的"任务列表/进度"承接界面 | 5.8、3.4 |
+| 多模型路由 | 现状是"每个客户端类型(MINI/PC)绑定一个 Dify App 配置",不是真正的多模型/多厂商路由网关;是否需要升级为本方案 5.10 节的路由网关,取决于是否要跨 Dify 之外接入其他模型 | 5.10、7.7 |
+| 细粒度权限 | 现状权限点只有一个 `AI_CHAT`,写操作类工具调用需要更细粒度的权限码(如 `AI_ERP_EXPENSE_WRITE`) | 8 |
+
+**结论**:第四章"做独立微服务"的判断依然成立且已经是既成事实——`wms-ai-backend` 本身就是那个独立服务。**接下来的工作不是新建一套 Agent 平台,而是在 `wms-ai-backend` 现有代码结构(routers/services/models 的分层)基础上,新增工具调用、任务引擎、ERP 适配、幂等机制这几类模块**,复用已有的 `AuthContext`、`ai_chat_store` 等基础设施。第四、五、七章后续内容按此结论做了相应调整。
+
 ---
 
 ## 二、总体架构设计
@@ -74,7 +117,7 @@
 | 小程序限制 | 影响 | 应对设计 |
 |---|---|---|
 | 页面/应用切后台后,网络连接会被系统挂起或断开(WebSocket 不保证后台存活) | 用户切出小程序查看别的应用、或小程序被系统回收,正在进行的"长对话"或"长任务"极易中断 | **任务执行必须与小程序前台生命周期完全解耦**:小程序端只负责"发起任务+轮询/订阅结果",真正执行在服务端异步进行,和 5.9 节的断点恢复机制天然契合,这里更要严格落实,不能假设小程序端会一直在线 |
-| 不支持原生 SSE 流式响应 | 常见的"打字机效果"流式输出在小程序里无法用标准 SSE 实现 | 采用**分片轮询**(短轮询获取增量内容)或**小程序 WebSocket API** 模拟流式,但 WebSocket 同样受上条限制影响,断线后需支持"续接上次已生成到的位置"而不是重新生成 |
+| 不支持原生 SSE 流式响应 | 常见的"打字机效果"流式输出在小程序里无法用标准 SSE 实现 | **现状已解决**:实际用 `wx.request({enableChunked:true})` + `onChunkReceived` 配合自研 `SseParser`(按 `\n\n` 切分事件、缓冲区处理跨分片粘包)实现了等效的流式效果,不需要再评估长轮询/WebSocket 方案;唯一待补的是断线后的"续接"逻辑(见 5.9 节),现状是断线后只能重新发起对话 |
 | 消息推送依赖"订阅消息"(一次性/永久),不能主动无限制推送 | 长任务(如批量报表生成、审批流程较长的ERP单据)完成后如何通知用户 | 任务发起时**引导用户授权一次性订阅消息**,任务完成后通过订阅消息推送提醒,同时任务中心内保留"未读任务"角标,兼顾"用户已关闭小程序"的场景 |
 | 图片/文件上传有大小限制,且弱网环境(移动网络)常见 | 发票拍照上传体积较大、网络不稳定 | 客户端先压缩+分片上传,上传接口本身要支持**断点续传**(而不仅仅是任务级别的断点恢复),失败自动重试并有明确进度提示 |
 | 小程序需在后台配置"服务器域名白名单"(request/socket合法域名) | 影响多环境(测试/预发/生产)部署和网关拆分方案 | 网关对外统一收敛到少数几个已备案域名,内部再做服务路由,避免为不同能力模块单独暴露域名导致小程序配置频繁变更审核 |
@@ -116,98 +159,93 @@
 
 > **范围澄清(根据最新反馈更新)**:PC 端已有前端页面和配置页面、小程序端已有前端界面和页面,**两端都不缺 UI,缺的是中间的"连接层"——也就是本方案里说的 Agent 后端服务(编排引擎+工具调用+ERP适配)**。这意味着接下来的工作**不涉及任何前端页面设计**,前面 3.4 节"小程序AI助手交互形态"等内容仅作为理解前端已有交互形式的参考,实际开发交付边界收窄为:**一套后端服务,严格适配现有前端已经定义好的接口调用方式**。这个前提对接入方式有直接影响,展开在下面 4.7 节。
 
-### 4.1 结论先行:做独立微服务,不嵌入现有系统
+### 4.1 结论先行(根据现状更新):独立服务已经存在,新增能力在其基础上扩展
 
-**强烈建议将 Agent 能力做成独立的微服务集群,而不是嵌入到现有 ERP 服务或小程序代码库中。** 理由:
+原方案建议"做独立微服务,不嵌入现有系统"——这个判断依然正确,但**不需要再新建**,因为 `wms-ai-backend`(Python FastAPI,已跑在 `:8091`)本身就是这个独立服务,Java 网关(`wms-backend`)已经在做鉴权转发。这个架构已经是"独立微服务"模式的正确实现,不需要推翻重来。
 
-| 考虑维度 | 嵌入现有系统的问题 | 独立微服务的优势 |
-|---|---|---|
-| 现有系统完成度 | ERP 已完成 88%,此时改动其核心代码去塞入 Agent 逻辑,极易引入回归缺陷,拖慢原计划上线节奏 | 不触碰 ERP 现有代码主干,通过 API 对接,ERP 团队可以按原计划收尾自己的 12% |
-| 技术栈差异 | Agent 依赖的 LLM 编排、向量库、异步任务队列等,大概率与 ERP 现有技术栈不同,强行塞入会引入大量不必要依赖 | 独立技术栈,自由选型(如 Python/Node 做编排层),不受 ERP 现有框架限制 |
-| 发布节奏 | Agent 相关能力(Prompt、工具、模型)需要**高频迭代**,和 ERP 这类相对稳定的核心业务系统发布节奏天然不同,耦合在一起会互相拖累发布 | 独立部署、独立发布,Agent 出问题不影响 ERP 核心交易链路,反之亦然 |
-| 资源隔离 | LLM 调用、向量检索属于 CPU/内存 波动较大的工作负载,和 ERP 交易类请求混跑容易互相抢占资源,高峰期可能拖垮 ERP 本身 | 独立容器资源配额,互不影响,可单独扩缩容 |
-| 权限与安全边界 | 若 Agent 逻辑直接跑在 ERP 服务进程里,权限边界模糊,一旦 Prompt 注入等问题出现,风险直接触及 ERP 核心 | Agent 服务只持有**受限的服务账号权限**,通过显式 API 调用 ERP,权限边界清晰,即使 Agent 侧出问题,影响面可控 |
+**因此结论调整为**:工具调用、任务引擎、ERP 适配、幂等机制等新增能力,**优先作为 `wms-ai-backend` 内部的新增 router/service 模块来实现**(复用其已有的 `AuthContext`、`ai_chat_store`、`chat_config_resolver` 等基础设施),而不是另起一个新容器。原因:
 
-唯一需要"轻度改造"现有系统的地方,是给 ERP 现有 API 补充**幂等参数支持**(如果目前没有的话),这是 5.9 节断点恢复机制能生效的前提,属于小改动而非重构,详见 4.3 节。
+| 考虑维度 | 说明 |
+|---|---|
+| 复用已验证的鉴权链路 | Java 网关→可信头→Python `AuthContext` 这条链路已经跑通,新增的工具调用类接口直接复用同一套 `require_trusted_context`,不需要重新设计一套鉴权 |
+| 复用已有数据基座 | `ai_conversation`/`ai_message` 已经承载了会话上下文,新的任务表、幂等表按同样的 `tenant_id`/`client_type` 风格新增到同一个 MySQL `wms` 库即可,不必新开数据库实例(见 4.2、七章调整) |
+| 降低运维复杂度 | 现有部署(Docker + nginx + 双网卡访问 Dify/RAGFlow)已经跑通,新模块作为同一服务内的新代码/新表上线,复用现有 CI/CD 和容器,不引入新的服务发现、新的网络配置 |
+| 何时才需要拆分为独立容器 | 仅当**异步任务执行**(如批量报表生成、图片OCR处理)出现明显的资源争抢或需要独立扩缩容时,再把这部分拆成一个新的 `wms-ai-worker` 容器,通过消息队列与 `wms-ai-backend` 解耦(见 4.2 图中虚线部分),这是**后续可选的演进步骤**,不是本期必须项 |
 
-### 4.2 整体部署拓扑(基于现有 Ubuntu + Docker 环境)
+唯一需要"轻度改造"现有系统的地方,是给 ERP 现有 API 补充**幂等参数支持**,这是 5.9 节断点恢复机制能生效的前提,属于小改动而非重构,详见 4.3 节。另外现有权限体系只有一个粗粒度的 `AI_CHAT` 权限点,写操作类工具需要新增细粒度权限码,详见第八章。
 
-由于 ERP 已经在 Docker 中运行,最自然的方式是把 Agent 服务作为**新增容器组**加入同一台/同一组宿主机,通过 Docker 内部网络与 ERP 通信,对外仍通过统一的反向代理暴露:
+### 4.2 整体部署拓扑(现状 + 增量部分)
+
+下图前半部分(浅色)是已经跑通的现状链路,后半部分(深色标注"新增")是本次需要开发的部分,都部署在同一个 Ubuntu 宿主机、同一个 Docker 网络下:
 
 ```mermaid
 flowchart TB
     subgraph Ext[外部接入]
-        PC[PC端浏览器]
+        PC[PC端浏览器 Vue3]
         MP[微信小程序]
     end
 
-    subgraph Proxy[反向代理 Nginx/Traefik 现有或新增]
-        NG[统一网关<br/>/erp/* 路由到ERP<br/>/agent/* 路由到Agent服务]
+    subgraph Proxy[nginx 现状已配置SSE透传]
+        NG[/api/ai/* 转发到 wms-backend/]
     end
 
-    subgraph DockerHost[同一 Ubuntu 宿主机 / Docker 网络]
-        subgraph ERPNet[现有 ERP 容器组 - 不改动]
-            E1[erp-app 容器]
-            E2[erp-db 容器]
-        end
-        subgraph AgentNet[新增 Agent 服务容器组]
-            A1[agent-gateway<br/>接入/鉴权/路由]
-            A2[agent-orchestrator<br/>意图理解/规划/执行]
-            A3[model-gateway<br/>多模型路由]
-            A4[task-worker<br/>异步任务执行]
-            A5[erp-adapter<br/>ERP适配层/幂等封装]
-            A6[agent-db<br/>PostgreSQL新实例或新schema]
-            A7[redis<br/>缓存/短期记忆/队列]
-            A8[vector-db<br/>RAG向量库]
-        end
+    subgraph JavaGW[wms-backend:8080 现状]
+        J1[AiGatewayController<br/>JWT验签+AI_CHAT权限校验]
+        J2[AiGatewayService<br/>注入可信头转发]
     end
 
-    PC --> NG
+    subgraph PyBackend[wms-ai-backend:8091 现状+新增模块]
+        P1[chat.py 对话路由 现状]
+        P2[knowledge.py 知识库路由 现状]
+        P3[admin_ai_config.py 配置路由 现状]
+        P4["**新增** tool.py 工具调用路由"]
+        P5["**新增** task.py 任务管理路由"]
+        P6["**新增** erp_adapter.py ERP适配层"]
+    end
+
+    subgraph Async["**新增(可选,后续演进)** wms-ai-worker"]
+        W1[异步任务消费者<br/>图片OCR/批量报表/长任务]
+    end
+
+    subgraph External[外部引擎 现状]
+        Dify[Dify :5001]
+        RAGFlow[RAGFlow :9380]
+    end
+
+    subgraph DB[MySQL:3306 wms库 现状表+新增表]
+        M1[ai_conversation / ai_message / ai_audit_log<br/>ai_external_conversation_ref / ai_conversation_link 现状]
+        M2["**新增** ai_task / ai_task_step / ai_idempotency_record / ai_erp_order_mapping"]
+    end
+
+    subgraph ERPSys[ERP业务系统 wms-backend自身或独立ERP服务]
+        E1[ERP 业务API]
+    end
+
+    PC --> NG --> J1 --> J2
     MP --> NG
-    NG --> E1
-    NG --> A1
-    A1 --> A2
-    A2 --> A3
-    A2 --> A4
-    A2 --> A5
-    A5 -->|内部Docker网络调用现有ERP API,不直连ERP数据库| E1
-    A2 --> A6
-    A2 --> A7
-    A2 --> A8
-    E1 --> E2
+    J2 -->|可信头| P1
+    J2 -->|可信头| P4
+    J2 -->|可信头| P5
+    P1 --> Dify
+    P2 --> RAGFlow
+    P1 --> M1
+    P4 --> P6
+    P5 --> M2
+    P6 -->|调用ERP已有API,不直连ERP数据库| E1
+    P5 -.异步长任务投递.-> W1
+    W1 --> M2
+    W1 --> P6
 ```
 
-**关键设计点**:
+**关键设计点(相对原方案的调整)**:
 
-- **`erp-adapter`(ERP 适配层)是唯一和 ERP 打交道的组件**,Agent 编排层不直接调用 ERP 原始接口,也**绝不直连 ERP 数据库**(哪怕是只读),统一通过 ERP 已有的 API 或专门为 Agent 开放的只读查询接口/只读副本获取数据,原因见 4.4 节
-- Agent 容器组和 ERP 容器组挂在**同一个 Docker 自定义网络**下,容器间通过服务名互相访问(如 `erp-adapter` 访问 `http://erp-app:port/api/xxx`),不必绕公网,延迟低、也不需要给内部调用开公网端口
-- 反向代理层面按路径或子域名分流(如 `erp.company.com` 和 `agent.company.com`,或同域名下 `/erp/*` 与 `/agent/*`),小程序侧的"合法域名"配置可以只暴露一个统一入口域名,内部再做路由,减少小程序后台域名配置的维护成本
-- `agent-db` 建议用**独立的 PostgreSQL 实例或至少独立 schema**,不与 ERP 生产库共用同一实例,避免连接数、锁资源相互影响,也避免 Agent 侧的表结构变更需要和 ERP 的数据库变更走同一套发布流程
-
-**资源隔离**(Docker Compose 层面就能做到,不需要复杂的容器编排平台):
-
-```yaml
-# docker-compose.agent.yml 片段示例(与现有 ERP 的 compose 文件并存,共用同一网络)
-services:
-  agent-orchestrator:
-    image: your-registry/agent-orchestrator:latest
-    networks:
-      - shared-net   # 与 ERP 容器同一网络,实现内部调用
-    deploy:
-      resources:
-        limits:
-          cpus: "1.5"
-          memory: 2G     # 显式限制资源上限,避免抢占ERP容器资源
-    depends_on:
-      - agent-db
-      - redis
-
-networks:
-  shared-net:
-    external: true   # 复用ERP侧已创建的网络,或新建后两个compose文件共同引用
-```
+- **不新建独立数据库**:新增的任务表、幂等表沿用现有 MySQL `wms` 库,继续用 `ai_` 前缀(如 `ai_task`、`ai_task_step`、`ai_idempotency_record`、`ai_erp_order_mapping`),字段风格与现有 5 张表保持一致(`tenant_id`/`client_type`/`created_at`/`updated_at`),而不是原方案里说的"独立 PostgreSQL 实例"——保持技术栈统一,降低运维成本
+- **`erp_adapter.py` 是 `wms-ai-backend` 内新增的一个 service 模块**,而不是独立容器,对内被 `tool.py`/`task.py` 调用,对外调用 ERP 现有 API(如果 ERP 业务接口本身也在 `wms-backend` 里,那就是同一套 Java 系统内部的接口;如果是独立 ERP 系统,则通过内部网络调用),**始终不直连 ERP 数据库**,原因见 4.4 节
+- **异步 worker 是可选的后续演进项**,不是本期必须:短任务(单次工具调用、单张发票识别)可以在 `wms-ai-backend` 现有的请求-响应或 SSE 流程里同步完成;只有明确出现长耗时任务(如批量报表、大量文档解析)且已有链路扛不住时,才拆出 `wms-ai-worker`,通过 Redis/消息队列与主服务解耦,这时候 5.9 节的"任务状态持久化+断点恢复"设计正好派上用场
+- 反向代理不需要新增路由规则,新接口全部挂在现有 `/api/ai/*` 前缀下(如 `/api/ai/tool/*`、`/api/ai/task/*`),小程序和 PC 端现有的域名白名单配置不需要变动
 
 ### 4.3 ERP 侧需要配合的最小改造清单
+
 
 考虑到 ERP 已完成 88%,建议只提出**新增接口/参数**级别的需求,不涉及已有功能重构:
 
@@ -249,35 +287,40 @@ networks:
 
 这样即便 Agent 侧开发和 ERP 收尾工作在时间上有重叠,也能保证每一步接入都是可验证、可回滚的,不会等到最后集成阶段才发现网络、权限、鉴权链路上的问题。
 
-### 4.7 前端已就绪场景下的对接方法(重点)
+### 4.7 前端已就绪场景下的对接方法(根据实际接口文档更新)
 
-这是当前项目最特殊也最需要优先做的一步:**前端(PC配置页面 + 小程序界面)已经按某种预期的接口形式开发好了,后端服务必须反向去适配这个已定的契约,而不是按"理想架构"从零设计接口再要求前端配合改动。** 顺序反了,返工成本会很高。
+这一步原方案是"如何梳理未知契约",现在契约已经通过《PC端AI助手模块设计方案与接口文档》《小程序端AI模块设计方案与接口文档》完全明确,不再是假设性练习,直接进入"确认现状契约 + 定义新增契约"两步。
 
-**第一步:接口契约梳理(在写任何后端代码之前完成)**
+**现状契约(已实现,不需要改动)**:
 
-由前端现有代码/配置页面反推出后端必须实现的真实契约,建议产出一份《接口契约清单》,至少覆盖:
+| 接口 | 方法 | 说明 |
+|---|---|---|
+| `/api/ai/chat/workflow/stream` | POST | 主对话接口,SSE 流式,PC/小程序共用,靠 `X-Client-Type` 区分 |
+| `/api/ai/chat/stream` / `/api/ai/chat/send` | POST | Chat 类型对话(流式/阻塞) |
+| `/api/ai/chat/conversations` | GET | 会话列表 |
+| `/api/ai/chat/conversations/{id}/messages` | GET | 会话历史 |
+| `/api/ai/chat/conversations/{id}` | DELETE | 删除会话 |
+| `/api/ai/knowledge/*` | 多个 | RAGFlow 知识库管理与检索 |
+| `/api/ai/admin/config` | GET/PUT | 双端 Dify 配置管理 |
+| `/api/file/upload`(`bizType=AI_ASSISTANT`) | POST | 通用文件上传,发票图片可复用此接口 |
 
-| 梳理项 | 具体要确认的内容 |
-|---|---|
-| 请求方式 | 前端调用是 HTTP 短请求、长轮询,还是已经写好了 WebSocket 连接逻辑?(直接决定 5.9/5.10 节"流式响应"只能适配现状,不能另起炉灶) |
-| 接口路径与参数 | 前端代码里已经写死的 URL 路径、请求方法、参数字段名、字段类型(哪怕当前指向的是 mock 数据或 404,这些路径大概率就是后端要实现的真实契约) |
-| 鉴权方式 | 前端已经在用什么方式带身份信息(Cookie/Header Token/小程序 code 换 openid 的现有逻辑),后端要原样对接,不能要求前端改鉴权流程 |
-| 消息/任务格式 | 小程序对话界面期望的消息结构(纯文本?富文本卡片?是否已定义了"卡片"这种消息类型的数据结构) |
-| 文件上传方式 | 小程序上传发票图片,前端是走小程序原生 `wx.uploadFile` 到哪个约定路径,格式是什么 |
-| 配置页面读写字段 | PC 端"配置页面"具体要配置什么(工具开关?模型选择?权限规则?),需要对照页面上的每个表单字段,反推出后端要提供的配置项 CRUD 接口 |
-| 异步/长任务的前端表现 | 前端页面上是否已经设计了"任务列表""进度条""通知红点"这类组件?如果有,后端返回的数据结构必须匹配这些组件已经写好的渲染逻辑 |
+**新增契约(本次需要设计并开发,建议延续现有风格——同一 `/api/ai/` 前缀、同样的可信头鉴权、同样的响应包裹格式 `{code, message, data}`)**:
 
-> ⚠️ 如果前端代码里这些约定并不存在(比如前端只是静态页面,尚未真正写调用逻辑),那么"契约"其实还没定,此时反而是按本方案里的设计(5.x/7.x 节)去定契约、再同步给前端补上调用逻辑的窗口期——**这两种情况的判断,决定了项目当前应该先做"契约梳理"还是"契约设计+前端补调用",建议先花半天到一天时间对现有前端代码做一次实际排查再定,而不是假设。**
+| 建议新增接口 | 方法 | 用途 | 对应模块 |
+|---|---|---|---|
+| `/api/ai/tool/invoke` | POST | 通用工具调用入口(内部按 `tool_name` 路由到具体工具实现) | 5.2 工具调用框架 |
+| `/api/ai/task/create` / `/api/ai/task/{id}` | POST/GET | 创建长任务、查询任务状态(断点恢复的查询入口) | 5.8、5.9 |
+| `/api/ai/task/{id}/confirm` | POST | 高风险操作(如ERP建单)的人工确认接口 | 5.9、8 |
+| `/api/ai/erp/expense/create` | POST | 报销单创建,需携带 `idempotency_key` | 4.3、5.6 |
+| `/api/ai/vision/expense-extract` | POST | 图片上传后的结构化字段抽取(复用 `/api/file/upload` 拿到 fileUrl 后调用) | 5.5、9.1 |
+| `/api/ai/report/generate` | POST | 一句话出报表(NL2SQL) | 5.7 |
+| `/api/ai/task/list` | GET | 任务中心列表(小程序/PC 都需要,是当前完全没有的新 UI 承接点) | 3.4、5.8 |
 
-**第二步:后端服务按契约实现,而非按理想架构实现**
+> ⚠️ 这些新增接口都建议延续现状已验证的模式:入参/出参走 `{code, message, data}` 包裹(与 `/api/ai/admin/config` 一致),鉴权走现有的可信头(`X-User-Id`/`X-Tenant-Id`/`X-Client-Type`/`X-Permission-Codes`),只是 `X-Permission-Codes` 需要按第八章的建议扩展出新权限码(如 `AI_ERP_EXPENSE_WRITE`),而不是都复用 `AI_CHAT`。这样前端(无论是已有的 `ai.js`/`adminAiConfig.js`,还是小程序的 `services/ai.ts`)只需按同样的封装方式新增几个调用函数,不需要重新设计一套请求/鉴权逻辑。
 
-- `agent-gateway` 的对外 API 层,直接按梳理出的契约定义 Controller/路由,前面几节设计的 `agent-orchestrator`、`model-gateway`、`erp-adapter` 等内部模块结构不变,只是**对外暴露的形状要削足适履去匹配已有前端**,内部实现仍按本方案的编排/工具调用/记忆/任务恢复等机制来做
-- 如果契约梳理发现前端的某些设计和后端机制有冲突(比如前端只支持一次性请求-响应,没有做轮询或长任务展示的 UI),需要**提前暴露给项目负责人做取舍**,而不是后端自己私自决定"改前端"或"阉割功能",这类冲突通常意味着功能范围需要重新对齐预期(如"长任务异步通知"这类能力,如果前端完全没有对应UI承接,短期内只能先做成同步等待或简化版提示)
-- PC 端"配置页面"背后的后端,建议单独作为 `agent-gateway` 下的一组**管理态 API**(与面向普通用户的对话/任务 API 区分权限),内部再调用 `model_routing_config`、工具注册中心等已设计好的数据结构做读写,这部分开发量相对独立,可以和核心 Agent 能力并行开发
+**小程序侧需要补的前端工作**(不属于本次"连接层"范围,但需要提前告知前端同学以便同步排期):当前 `ai-assistant` 组件是纯对话形式,新增"任务中心"入口、"报销单预览卡片""报表卡片"这类结构化消息渲染,需要前端在现有组件基础上扩展消息类型(目前 `Message` 接口只有 `role/content/html/reasoning`,需要新增如 `type: 'card' | 'text'` 和对应的卡片渲染模板)。PC 端同理,`AgentPlaceholder.vue` 需要从占位组件替换为真实的工具调用/任务展示界面。
 
-**第三步:小范围联调优先于批量开发**
-
-鉴于前后端已经分离且前端先行完成,建议:先实现**契约清单里最简单的 1-2 个接口(如一次简单查询问答)完整打通"小程序页面 → agent-gateway → agent-orchestrator → 返回结果"全链路**,验证契约理解无误、鉴权可用、网络可通,再批量实现剩余接口,避免契约理解有偏差时,已经批量写完的后端代码大范围返工。
+**联调优先级建议**:虽然接口契约已经明确,仍建议先打通 1-2 个最简单的新增接口(如 `/api/ai/task/list` 返回空列表)完整验证"小程序/PC → nginx → Java网关可信头转发 → wms-ai-backend 新路由 → MySQL新表"全链路无误,再批量开发其余接口,避免鉴权或数据库连接配置问题在批量开发后才暴露。
 
 ## 五、核心模块设计
 
@@ -332,14 +375,13 @@ networks:
 
 记忆写入采用"关键信息抽取"而非全量存储:每轮对话结束后,由一个轻量的"记忆抽取"步骤判断是否有值得沉淀的信息(如新的偏好、待办事项),避免记忆库膨胀和噪声污染。
 
-### 5.4 RAG 检索增强
+### 5.4 RAG 检索增强(**已由 RAGFlow 实现,以下为待补充的权限管控点**)
 
-标准链路:文档预处理(切分+清洗)→ 向量化(Embedding)→ 向量库存储 → 检索(向量检索+关键词检索混合,即 Hybrid Search)→ 重排序(Rerank)→ 拼接上下文 → 生成回答,并**返回引用来源**(文档名+片段),避免幻觉且便于用户核实。
+标准链路(文档预处理→向量化→检索→重排序→生成→引用来源)已由现状的 **RAGFlow** 承担,`/api/ai/knowledge/*` 接口已封装数据集、文档、检索能力,**不需要重新设计切分/向量化/混合检索逻辑**。
 
-企业落地要点:
-- 权限与检索范围绑定:不同角色只能检索其权限范围内的知识库分区
-- 文档定期增量更新,避免全量重建索引
-- 对答案设置"无法确定时明确告知"的兜底策略,不强行编造
+需要补充的是权限管控,现状文档未提及数据集级别的权限隔离:
+- 不同角色/部门只能检索其权限范围内的知识库数据集,建议在 `wms-ai-backend` 调用 RAGFlow 检索接口前,先按 `AuthContext` 过滤允许访问的 `dataset_ids`,而不是让前端直接传任意 `dataset_ids`
+- 对答案设置"无法确定时明确告知"的兜底策略,不强行编造,这一点在 Dify 工作流的 Prompt 设计层面配置即可
 
 ### 5.5 多模态处理(图片 → 报销单)
 
@@ -392,9 +434,13 @@ networks:
 
 6. **异步完成通知**:长任务无需用户一直等待,完成后通过站内信/IM 消息/Webhook 主动推送结果,用户可随时回来查看,不受当次会话生命周期限制。
 
-### 5.10 多大模型接入与路由选择机制
+### 5.10 多大模型接入与路由选择机制(**现状是简化版,是否升级需按需评估**)
 
-企业落地通常不会只用一个模型:文本推理、图片理解、SQL 生成对模型能力要求不同,且需要成本、延迟、合规多重考量。建议设计独立的**模型网关(Model Gateway)**层,而不是在业务代码里直接硬编码调用某个模型 API。
+现状的"多模型"支持停留在:PC/MINI 每端各绑定一个 Dify App 配置(`provider`/`baseUrl`/`apiKey`/`appType`),模型本身的选择发生在 **Dify 工作流内部配置**,不在 `wms-ai-backend` 这一层。这对当前"对话+RAG"场景是够用的。
+
+**是否需要升级为下面描述的独立模型网关,取决于**:是否要在 `wms-ai-backend` 层面跨多个 Dify App / 跨 Dify 之外的模型(如接入其他厂商 API 做图片OCR、NL2SQL 等专项任务)做统一路由。如果图片识别、NL2SQL 等新增能力打算复用 Dify 工作流(新建对应的 Dify App 即可),则不需要下面的网关层;如果打算绕开 Dify 直接调用底层模型 API(如某些场景 Dify 的编排能力不够灵活),才需要按下面的设计新增网关层。**建议先以扩展 Dify App 的方式验证可行性,只有明确遇到 Dify 编排能力的瓶颈时再引入独立模型网关**,避免过度设计。
+
+企业落地通常不会只用一个模型:文本推理、图片理解、SQL 生成对模型能力要求不同,且需要成本、延迟、合规多重考量。若确需独立网关,建议设计独立的**模型网关(Model Gateway)**层,而不是在业务代码里直接硬编码调用某个模型 API。
 
 **路由考虑的五个维度**:
 
@@ -429,21 +475,21 @@ networks:
 
 ---
 
-## 六、技术选型建议
+## 六、技术选型建议(根据现状调整:已选型的不再重新论证)
 
-| 层次 | 选型建议 | 说明 |
+| 层次 | 现状/建议 | 说明 |
 |---|---|---|
-| 编排框架 | LangGraph / 自研状态机 | 需要显式状态流转和人工确认节点,建议用图结构而非简单链式调用 |
-| 模型网关 | 统一网关 + 多模型路由 | 支持主力模型+备用模型降级,按任务类型路由(复杂规划用强模型,简单分类用轻量模型) |
-| 向量数据库 | Milvus / PGVector | 企业内部部署优先考虑私有化方案 |
-| 数据库查询 | 只读副本 + NL2SQL + SQL 白名单校验 | 严禁生成 DDL/DML,查询超时与结果行数需限制 |
-| 消息与任务队列 | Kafka / RabbitMQ | 用于异步任务(如批量报表生成)解耦 |
-| 部署 | Kubernetes + 容器化 | 各能力模块微服务化,独立扩缩容 |
-| 可观测性 | OpenTelemetry + 日志平台 | 全链路 Trace,记录每个 Agent 决策和工具调用 |
-| 端侧适配层(BFF) | 独立 BFF 服务,PC/小程序各一套 | 复用同一套后端能力,仅做协议/交互适配,避免业务逻辑双写 |
-| 小程序流式方案 | 长轮询 / 小程序 WebSocket + 续接机制 | 不支持原生SSE,需自实现增量拉取,并支持断线后从已生成位置续接 |
-| 消息触达 | 小程序订阅消息 + 站内任务中心 | 应对小程序无法保持后台长连接、无法主动无限推送的限制 |
-| 缓存层 | Redis | 用户画像、路由配置、常用报表模板等高频读取数据 |
+| 对话与工作流编排 | **Dify(现状已用,延用)** | 已承担对话/工作流编排,新增的工具调用可作为 Dify 工作流里的 HTTP 请求节点回调 `wms-ai-backend` 自身接口,或在 `wms-ai-backend` 内部单独实现一层更可控的工具执行/确认/幂等逻辑(涉及资金类操作,建议后者,原因见下方说明) |
+| RAG 检索 | **RAGFlow(现状已用,延用)** | 数据集/文档/检索能力已封装,新增工作只是权限范围过滤和检索结果与工具调用的串联,不需要重新选型或自建向量库 |
+| 工具调用/任务引擎 | `wms-ai-backend` 内新增模块(自研) | Dify 的 Agent/工具调用能力偏向"对话式辅助决策",而 5.9 节的幂等、断点恢复、人工确认这类强状态机语义,建议在 `wms-ai-backend` 自己的代码里实现,Dify 工作流只做"何时触发工具"的意图判断,不承载工具执行的状态管理 |
+| 数据存储 | **MySQL 8.0,`wms` 库(现状已用,延用)** | 新增任务表、幂等表继续放在同一个库,`ai_` 前缀,不新开 PostgreSQL 或独立实例 |
+| 数据库查询工具 | 只读副本 + NL2SQL + SQL 白名单校验 | 若要支持"一句话出报表"查询 ERP 业务数据,建议对 ERP 业务库开只读副本,`wms-ai-backend` 侧新增查询工具时严禁生成 DDL/DML |
+| 消息与任务队列 | Redis(现状已用于缓存的话可直接复用其 Stream 能力)/ 或轻量方案 | 3000+ 用户量级不需要一开始就上 Kafka,Redis Stream 或数据库轮询即可满足异步任务解耦需求,避免过度设计 |
+| 部署 | Docker(现状已用,延用) | 新模块作为 `wms-ai-backend` 内代码或新增 `wms-ai-worker` 容器,复用现有 Docker Compose 与网络,不引入 Kubernetes 等更复杂的编排平台(3000+ 用户量级也用不上) |
+| 可观测性 | OpenTelemetry + 日志平台(新增) | 现状文档未提及链路追踪,建议补充,尤其是新增的工具调用/ERP写操作链路 |
+| 小程序流式方案 | **`wx.request(enableChunked:true)` + 自研 SSE 分片解析器(现状已实现,延用)** | 已验证可行,不需要重新评估长轮询/WebSocket 方案 |
+| 消息触达 | 小程序订阅消息 + 新增"任务中心"(需新增) | 当前无异步任务通知机制,长任务(报表生成等)需要新增 |
+| 加密/密钥管理 | Fernet 对称加密(现状已用于 Dify API Key,延用) | 后续 ERP 服务账号密钥等敏感配置建议延用同一套加密方式,保持一致 |
 
 ---
 
@@ -457,35 +503,23 @@ networks:
 > 3. 关键业务表(任务、审计日志)一律**不做物理删除**,用 `status`/`deleted_at` 软删除,保证可追溯
 > 4. 大字段(原始图片、OCR原始JSON、网页抓取全文)不直接存关系库,存对象存储(OSS/S3),表里只存 URL 引用,避免单表膨胀拖慢查询
 > 5. 涉及并发更新的表(任务、步骤)加 `version` 字段做**乐观锁**,防止两个 Worker 同时更新同一任务状态导致状态错乱
+> 6. **命名与主键风格对齐现状**:现有 `ai_conversation`/`ai_message` 等表使用 `BIGINT UNSIGNED` 自增主键而非 UUID,新增表建议统一沿用这一风格(下面表格中出现的 `varchar(36) PK` 按此原则替换为 `BIGINT UNSIGNED AUTO_INCREMENT`,业务上需要全局唯一标识时再单独加一个 `xxx_key VARCHAR(64) UNIQUE` 列,如幂等键),保持与现状 5 张表的建表规范一致,减少团队认知成本
 
-### 7.1 会话与消息
+### 7.1 会话与消息(**已实现,直接复用现状表,不需要新建**)
 
-**`sessions`(会话表)**
+现状 `ai_conversation` / `ai_message` 两张表已经覆盖了本节原设计的 `sessions`/`messages` 表要解决的问题,而且比原设计更完整(已有 `retention_level`、`source_client_type`/`primary_client_type` 支持跨端会话),直接复用即可,字段对照如下,**新增的任务/工具调用表在关联会话时,统一引用 `ai_conversation.id` 作为外键**:
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| session_id | varchar(36) PK | UUID |
-| tenant_id | varchar(36) | 租户ID |
-| user_id | varchar(36) | 用户ID,关联企业身份系统 |
-| channel | varchar(20) | web / feishu / wecom / mobile,**用于跨渠道会话同步** |
-| status | varchar(20) | active / archived |
-| created_at / last_active_at | timestamp | last_active_at 用于会话超时归档判断 |
+| 本方案原设计字段 | 对应现状字段(`ai_conversation`) |
+|---|---|
+| session_id | id |
+| tenant_id | tenant_id |
+| user_id | user_id |
+| channel | client_type(已归一化为 MINI/PC) |
+| status | status(ACTIVE/ARCHIVED/DELETED) |
 
-**`messages`(消息表)**
+`ai_message` 表已有 `permission_snapshot`/`data_scope_snapshot` 字段(写入时的权限快照),比原设计的 `messages` 表更完整;若某条消息触发了工具调用,建议在其 `message_meta`(JSON 字段)里追加 `tool_call_id`/`task_id` 引用,而不必新增外键列,减少对现状表结构的改动。
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| message_id | varchar(36) PK | |
-| session_id | varchar(36) FK | |
-| role | varchar(10) | user / assistant / tool |
-| content | text | 文本内容 |
-| tool_call_ref | varchar(36) | 若该消息触发了工具调用,关联 `tool_call_logs.id` |
-| trace_id | varchar(36) | 全链路追踪ID,贯穿意图识别→规划→工具调用 |
-| created_at | timestamp | |
-
-> ⚠️ `messages` 表建议**按月分区**,企业场景消息量增长快,不分区半年后查询会明显变慢。
-
-### 7.2 任务与步骤(支撑断点恢复的核心表)
+### 7.2 任务与步骤(支撑断点恢复的核心表,**本节为新增**)
 
 **`tasks`(任务表)**
 
@@ -496,7 +530,7 @@ networks:
 | goal | text | 任务目标描述(如"根据发票创建报销单") |
 | status | varchar(20) | `pending / planning / running / waiting_confirm / succeeded / failed / cancelled` |
 | current_step_id | varchar(36) | 当前执行到的步骤,**恢复时的入口指针** |
-| plan_snapshot | jsonb | 规划器生成的完整任务DAG,恢复时无需重新规划 |
+| plan_snapshot | JSON(MySQL) | 规划器生成的完整任务DAG,恢复时无需重新规划 |
 | version | int | 乐观锁,每次更新 +1 |
 | created_at / updated_at | timestamp | |
 
@@ -507,10 +541,10 @@ networks:
 | step_id | varchar(36) PK | |
 | task_id | varchar(36) FK | |
 | step_index | int | 步骤序号,配合 `depends_on` 还原DAG执行顺序 |
-| depends_on | jsonb | 依赖的 step_id 数组,支持并行无依赖步骤 |
+| depends_on | JSON(MySQL) | 依赖的 step_id 数组,支持并行无依赖步骤 |
 | tool_name | varchar(50) | 调用的工具 |
-| input_params | jsonb | 该步骤入参快照 |
-| output_result | jsonb | 执行结果,**恢复时优先读这里而非重新执行** |
+| input_params | JSON(MySQL) | 该步骤入参快照 |
+| output_result | JSON(MySQL) | 执行结果,**恢复时优先读这里而非重新执行** |
 | status | varchar(20) | `pending / running / succeeded / failed / waiting_confirm / skipped` |
 | idempotency_key | varchar(64) UNIQUE | `task_id + step_id`,**幂等的关键字段,数据库层加唯一约束** |
 | need_confirm | boolean | 是否需要人工确认才能继续 |
@@ -636,7 +670,7 @@ pending → planning → running ─┬→ waiting_confirm → running
 |---|---|---|
 | task_type | varchar(30) | 如 intent_classify / planning / vision / sql_gen |
 | primary_model | varchar(50) | |
-| fallback_models | jsonb | 有序备用模型列表 |
+| fallback_models | JSON(MySQL) | 有序备用模型列表 |
 | sensitivity_level | varchar(20) | 是否仅允许私有化模型 |
 | updated_at | timestamp | |
 
@@ -664,8 +698,8 @@ pending → planning → running ─┬→ waiting_confirm → running
 | trace_id | varchar(36) | |
 | user_id / tenant_id | varchar(36) | |
 | action | varchar(50) | 如 `erp_create_expense` |
-| request_snapshot | jsonb | 执行前参数快照 |
-| result_snapshot | jsonb | 执行后结果快照,**Before/After 都要留**,而非只留最终态 |
+| request_snapshot | JSON(MySQL) | 执行前参数快照 |
+| result_snapshot | JSON(MySQL) | 执行后结果快照,**Before/After 都要留**,而非只留最终态 |
 | risk_level | varchar(10) | |
 | created_at | timestamp | |
 
@@ -677,10 +711,11 @@ pending → planning → running ─┬→ waiting_confirm → running
 
 这是"工程级落地"和"Demo"的核心差异所在,建议重点投入:
 
+0. **鉴权模式沿用现状,只扩展权限码颗粒度**:现状已实现"Java 网关做 JWT 验签 + 权限校验 → 注入可信头(`X-User-Id`/`X-Tenant-Id`/`X-Client-Type`/`X-Permission-Codes`)→ Python 层信任并解析为 `AuthContext`"的模式,这个模式本身是合理的,**不需要重新设计**。需要扩展的只是 `X-Permission-Codes` 的颗粒度:现状只有一个 `AI_CHAT`,建议按风险等级新增权限码,如 `AI_CHAT`(基础对话,现状)、`AI_TOOL_READ`(只读查询类工具)、`AI_ERP_EXPENSE_WRITE`(报销单创建)、`AI_ERP_PURCHASE_WRITE`(采购单创建)等,Java 网关侧的 `AiAssistantAccessService` 按接口路径校验对应权限码后再转发,Python 侧 `AuthContext.permission_codes` 里也要能看到这些细粒度权限,供工具执行前做二次校验(不能只在网关校验一次就完全信任,工具执行层也应再判断一次,双重保险)
 1. **身份与权限**:Agent 以用户身份而非超级账号调用后端系统,严格遵循用户原有权限体系,不越权
 2. **高风险操作二次确认**:涉及金额、审批、数据修改类操作,必须有明确的用户确认环节,且确认内容需与实际执行内容一致(防止"确认话术"与"实际执行参数"不一致的问题)
 3. **Prompt 注入防护**:对外部输入(网页内容、文档内容、图片OCR结果)进行隔离,不允许其中的指令性文本被当作系统指令执行
-4. **审计日志**:记录每次对话的完整决策链路(意图→规划→工具调用→结果),满足企业合规审计要求
+4. **审计日志**:现状 `ai_audit_log` 已实现 append-only 审计,新增的工具调用/ERP写操作按同样的表结构追加 `operation_type`(如 `TOOL_INVOKE`/`ERP_ORDER_CREATE`),不需要新建审计表
 5. **数据脱敏**:日志与监控中对敏感字段(身份证、银行卡号等)脱敏存储
 6. **限流与配额**:按用户/部门设置调用频率和成本配额,防止滥用
 

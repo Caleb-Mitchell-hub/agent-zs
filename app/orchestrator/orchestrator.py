@@ -30,6 +30,8 @@ from app.gateway.model_gateway import model_gateway
 from app.security.prompt_guard import prompt_guard
 from app.security.data_masking import data_masking
 from app.security.circuit_breaker import circuit_breaker_manager
+from app.security.tracing import generate_trace_id, set_trace_id, get_trace_id
+from app.security.audit import audit_logger
 from app.orchestrator.planner import planner
 from app.tools.registry import tool_registry
 
@@ -79,32 +81,46 @@ class Orchestrator:
     async def process(self, user_input: str, session_id: str, user_id: int, tenant_id: int) -> dict:
         """处理用户请求"""
 
-        # 0. 安全检查：Prompt 注入防护
+        # 0. 生成 trace_id，贯穿全链路
+        trace_id = generate_trace_id()
+        set_trace_id(trace_id)
+
+        # 1. 安全检查：Prompt 注入防护
         safety_check = prompt_guard.check_input(user_input)
         if not safety_check["safe"]:
             logger.warning(f"检测到注入威胁: {safety_check['threats']}")
+            await audit_logger.log("unsafe_input", str(user_id), str(tenant_id), {"input": user_input}, risk_level="high", trace_id=trace_id)
             return {"status": "error", "message": "输入包含不安全内容", "error_code": "UNSAFE_INPUT"}
 
-        # 1. 清理输入
+        # 2. 清理输入
         clean_input = prompt_guard.sanitize_input(user_input)
 
-        # 2. 保存用户消息
+        # 3. 保存用户消息
         await session_memory.add_message(session_id, "user", clean_input)
 
-        # 3. 获取上下文
+        # 4. 获取上下文
         context = await session_memory.get_context(session_id)
         messages = await session_memory.get_messages(session_id)
 
-        # 4. 意图识别（两级机制）
+        # 5. 意图识别（两级机制）
         intent = await planner.classify_intent(clean_input)
         task_type = TaskType(intent) if intent in [t.value for t in TaskType] else TaskType.QUERY
 
-        # 5. 创建任务
+        # 6. 创建任务
         task = Task(
             task_id=f"task-{uuid.uuid4().hex[:8]}",
             task_type=task_type,
             state=TaskState.PLANNING,
             input={"user_input": clean_input, "context": context},
+        )
+
+        # 7. 记录审计日志
+        await audit_logger.log(
+            action=f"task_{task_type.value}",
+            user_id=str(user_id),
+            tenant_id=str(tenant_id),
+            request_snapshot={"user_input": clean_input},
+            trace_id=trace_id,
         )
 
         # 6. 执行任务（带熔断保护）
