@@ -19,10 +19,10 @@ async def index():
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
-            .header { background: #1890ff; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+            .header { background: #1890ff; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
             .header h1 { font-size: 18px; font-weight: 500; }
             .header .status { font-size: 12px; opacity: 0.8; }
-            .container { flex: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; padding: 20px; }
+            .container { flex: 1; display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; width: 100%; padding: 20px; overflow: hidden; }
             .chat-box { flex: 1; overflow-y: auto; background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
             .message { margin-bottom: 16px; display: flex; gap: 12px; }
             .message.user { flex-direction: row-reverse; }
@@ -33,13 +33,16 @@ async def index():
             .message.user .content { background: #1890ff; color: white; border-bottom-right-radius: 4px; }
             .message.assistant .content { background: #f0f0f0; color: #333; border-bottom-left-radius: 4px; }
             .message .content pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; margin-top: 8px; }
-            .message .content table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-            .message .content th, .message .content td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 13px; }
+            /* 表格容器：只允许表格横向滚动 */
+            .table-wrap { overflow-x: auto; max-width: 100%; }
+            .message .content table { width: 100%; border-collapse: collapse; margin-top: 8px; min-width: 600px; }
+            .message .content th, .message .content td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 13px; white-space: nowrap; }
             .message .content th { background: #fafafa; }
+            .error-msg { color: #ff4d4f; background: #fff2f0; border: 1px solid #ffccc7; padding: 12px; border-radius: 8px; margin-top: 8px; }
             .quick-actions { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
             .quick-btn { background: white; border: 1px solid #d9d9d9; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
             .quick-btn:hover { border-color: #1890ff; color: #1890ff; }
-            .input-area { display: flex; gap: 12px; }
+            .input-area { display: flex; gap: 12px; flex-shrink: 0; }
             .input-area input { flex: 1; padding: 12px 16px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 14px; outline: none; }
             .input-area input:focus { border-color: #1890ff; box-shadow: 0 0 0 2px rgba(24,144,255,0.2); }
             .input-area button { background: #1890ff; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; }
@@ -85,24 +88,29 @@ async def index():
             }
 
             function formatResult(data) {
-                if (!data) return '无数据';
-                if (data.data && data.data.length > 0) {
-                    let html = '<table><tr>';
-                    const keys = Object.keys(data.data[0]);
-                    keys.forEach(k => html += '<th>' + k + '</th>');
-                    html += '</tr>';
-                    data.data.slice(0, 10).forEach(row => {
-                        html += '<tr>';
-                        keys.forEach(k => html += '<td>' + (row[k] !== null ? row[k] : '-') + '</td>');
-                        html += '</tr>';
-                    });
-                    html += '</table>';
-                    if (data.data.length > 10) html += '<p style="color:#999;margin-top:8px">共 ' + data.data.length + ' 条数据</p>';
-                    return html;
+                // 错误处理：返回友好的错误信息
+                if (data.status === 'error' || data.status === 'clarify') {
+                    return '<div class="error-msg">' + (data.message || '抱歉，无法处理您的请求') + '</div>';
                 }
-                if (data.sql) return '<pre>' + data.sql + '</pre>';
-                if (data.message) return data.message;
-                return JSON.stringify(data, null, 2);
+
+                if (!data.data || data.data.length === 0) {
+                    return data.message || '查询完成，无数据返回';
+                }
+
+                // 有数据时返回表格（表格区域可横向滚动）
+                let html = '<div class="table-wrap"><table><tr>';
+                const keys = Object.keys(data.data[0]);
+                keys.forEach(k => html += '<th>' + k + '</th>');
+                html += '</tr>';
+                data.data.slice(0, 20).forEach(row => {
+                    html += '<tr>';
+                    keys.forEach(k => html += '<td>' + (row[k] !== null && row[k] !== undefined ? row[k] : '-') + '</td>');
+                    html += '</tr>';
+                });
+                html += '</table></div>';
+                if (data.data.length > 20) html += '<p style="color:#999;margin-top:8px">共 ' + data.data.length + ' 条数据</p>';
+                if (data.message) html += '<p style="color:#666;margin-top:8px">' + data.message + '</p>';
+                return html;
             }
 
             async function ask(question) {
@@ -129,7 +137,7 @@ async def index():
                     const data = await res.json();
                     addMessage('assistant', formatResult(data));
                 } catch (e) {
-                    addMessage('assistant', '请求失败: ' + e.message);
+                    addMessage('assistant', '<div class="error-msg">请求失败：' + e.message + '</div>');
                 } finally {
                     typing.classList.remove('show');
                     input.disabled = false;
