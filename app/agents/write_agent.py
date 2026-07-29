@@ -72,15 +72,31 @@ class WriteAgent:
             prompt = EXTRACT_PARAMS_PROMPT.format(user_input=user_input)
             response = await llm_client.chat(prompt)
 
-            # 解析 JSON
-            match = re.search(r'\{.*\}', response, re.DOTALL)
-            if match:
-                doc_info = json.loads(match.group())
-            else:
-                return {
-                    "status": "error",
-                    "message": "无法理解您的请求，请重新描述",
-                }
+            # 解析 JSON（更健壮的解析）
+            try:
+                # 尝试直接解析
+                doc_info = json.loads(response)
+            except:
+                # 尝试提取 JSON 块
+                match = re.search(r'```(?:json)?\s*(.*?)```', response, re.DOTALL)
+                if match:
+                    try:
+                        doc_info = json.loads(match.group(1).strip())
+                    except:
+                        # 尝试提取 {...} 部分
+                        match = re.search(r'\{.*\}', response, re.DOTALL)
+                        if match:
+                            doc_info = json.loads(match.group())
+                        else:
+                            return {
+                                "status": "error",
+                                "message": "无法理解您的请求，请重新描述",
+                            }
+                else:
+                    return {
+                        "status": "error",
+                        "message": "无法理解您的请求，请重新描述",
+                    }
 
             doc_type = doc_info.get("doc_type")
             params = doc_info.get("params", {})
