@@ -78,6 +78,7 @@ class ErpAdapter:
 
     async def _create_idempotency_record(self, key: str, target_system: str, request_hash: str):
         """创建幂等记录"""
+        from datetime import timedelta
         async for session in get_session():
             await session.execute(
                 text("""
@@ -89,7 +90,7 @@ class ErpAdapter:
                     "target_system": target_system,
                     "request_hash": request_hash,
                     "status": "pending",
-                    "expire_at": datetime.now().replace(day=datetime.now().day + 30),
+                    "expire_at": datetime.now() + timedelta(days=30),
                 },
             )
             await session.commit()

@@ -7,29 +7,35 @@
 - 管理执行流程
 """
 
+import json
 import logging
+import uuid
+from datetime import datetime
 from enum import Enum
-from typing import Optional
+
 from pydantic import BaseModel
 
 from app.agents.data_agent import DataAgent
 from app.agents.write_agent import WriteAgent
 from app.agents.knowledge_agent import KnowledgeAgent
+from app.agents.report_agent import ReportAgent
 from app.memory import session_memory
 from app.memory.task_memory import task_memory
 from app.memory.user_memory import user_memory
+from app.adapter.erp_adapter import erp_adapter
+from app.gateway.model_gateway import model_gateway
 
 logger = logging.getLogger(__name__)
 
 
 class TaskType(str, Enum):
     """任务类型"""
-    QUERY = "query"           # 数据查询
-    REPORT = "report"         # 报表生成
-    CREATE = "create"         # 创建单据
-    UPDATE = "update"         # 更新单据
-    KNOWLEDGE = "knowledge"   # 知识检索
-    UNKNOWN = "unknown"       # 未知
+    QUERY = "query"
+    REPORT = "report"
+    CREATE = "create"
+    UPDATE = "update"
+    KNOWLEDGE = "knowledge"
+    UNKNOWN = "unknown"
 
 
 class TaskState(str, Enum):
@@ -50,24 +56,7 @@ class Task(BaseModel):
     agent_name: str = ""
     input: dict = {}
     output: dict = {}
-    error: Optional[str] = None
-
-
-# 意图识别 Prompt
-INTENT_PROMPT = """你是一个意图识别专家。根据用户的输入，判断用户想要做什么。
-
-## 用户输入
-{user_input}
-
-## 可选意图
-- query: 查询数据、统计、分析
-- report: 生成报表、图表
-- create: 创建单据（采购订单、销售订单等）
-- update: 更新单据状态
-- knowledge: 查询知识、操作手册、业务规则
-
-## 输出格式
-只返回意图类型，不要解释。例如: query"""
+    error: str = None
 
 
 class Orchestrator:
@@ -77,201 +66,83 @@ class Orchestrator:
         self.data_agent = DataAgent()
         self.write_agent = WriteAgent()
         self.knowledge_agent = KnowledgeAgent()
+        self.report_agent = ReportAgent()
 
     async def process(self, user_input: str, session_id: str, user_id: int, tenant_id: int) -> dict:
-        """处理用户请求
-
-        Args:
-            user_input: 用户输入
-            session_id: 会话 ID
-            user_id: 用户 ID
-            tenant_id: 租户 ID
-
-        Returns:
-            dict: 处理结果
-        """
+        """处理用户请求"""
         # 1. 保存用户消息
         await session_memory.add_message(session_id, "user", user_input)
 
-        # 2. 获取会话上下文
+        # 2. 获取上下文
         context = await session_memory.get_context(session_id)
         messages = await session_memory.get_messages(session_id)
 
-        # 3. 识别意图
-        task_type = await self._identify_intent(user_input, messages)
-        logger.info(f"识别意图: {task_type}")
+        # 3. 意图识别（通过 Model Gateway）
+        intent_result = await model_gateway.route_and_call(
+            task_type="intent_classify",
+            prompt=f"判断用户意图，只返回：query/create/report/knowledge\n用户输入：{user_input}",
+        )
+        intent = intent_result.get("response", "query").strip().lower()
+        task_type = TaskType(intent) if intent in TaskType.__members__.values() else TaskType.QUERY
 
         # 4. 创建任务
         task = Task(
-            task_id=f"task-{session_id}-{len(messages)}",
+            task_id=f"task-{uuid.uuid4().hex[:8]}",
             task_type=task_type,
             state=TaskState.PLANNING,
             input={"user_input": user_input, "context": context},
         )
 
-        # 5. 更新任务状态
-        await session_memory.update_task_state(session_id, task.model_dump())
-
-        # 6. 选择 Agent 执行
+        # 5. 执行任务
         try:
             task.state = TaskState.EXECUTING
-            await session_memory.update_task_state(session_id, task.model_dump())
 
-            if task_type in [TaskType.QUERY, TaskType.REPORT]:
-                result = await self.data_agent.execute(
-                    user_input=user_input,
-                    messages=messages,
-                    context=context,
-                    session_id=session_id,
-                    user_id=user_id,
-                    tenant_id=tenant_id,
-                )
+            if task_type == TaskType.QUERY:
                 task.agent_name = "data_agent"
-            elif task_type in [TaskType.CREATE, TaskType.UPDATE]:
-                result = await self.write_agent.execute(
-                    user_input=user_input,
-                    messages=messages,
-                    context=context,
-                    session_id=session_id,
-                    user_id=user_id,
-                    tenant_id=tenant_id,
-                )
+                result = await self.data_agent.execute(user_input, messages, context, session_id, user_id, tenant_id)
+            elif task_type == TaskType.CREATE:
                 task.agent_name = "write_agent"
+                result = await self.write_agent.execute(user_input, messages, context, session_id, user_id, tenant_id)
+                # 写操作通过 ERP Adapter
+                if result.get("status") == "ok" and result.get("doc_id"):
+                    await erp_adapter.create_document(
+                        doc_type=result.get("doc_type", "unknown"),
+                        params=result.get("params", {}),
+                        idempotency_key=f"{task.task_id}",
+                        user_id=str(user_id),
+                        tenant_id=str(tenant_id),
+                    )
             elif task_type == TaskType.KNOWLEDGE:
-                result = await self.knowledge_agent.execute(
-                    user_input=user_input,
-                    messages=messages,
-                    context=context,
-                    session_id=session_id,
-                    user_id=user_id,
-                    tenant_id=tenant_id,
-                )
                 task.agent_name = "knowledge_agent"
+                result = await self.knowledge_agent.execute(user_input, messages, context, session_id, user_id, tenant_id)
+            elif task_type == TaskType.REPORT:
+                task.agent_name = "report_agent"
+                result = await self.report_agent.execute(user_input, messages, context, session_id, user_id, tenant_id)
             else:
-                result = {
-                    "status": "error",
-                    "message": "暂不支持该类型的操作",
-                    "error_code": "UNSUPPORTED_TASK",
-                }
+                result = {"status": "error", "message": "暂不支持该类型的操作", "error_code": "UNSUPPORTED_TASK"}
 
-            # 7. 更新任务状态
             task.output = result
             task.state = TaskState.COMPLETED if result.get("status") == "ok" else TaskState.FAILED
-            task.error = result.get("message") if result.get("status") != "ok" else None
 
         except Exception as e:
             logger.error(f"任务执行失败: {e}", exc_info=True)
             task.state = TaskState.FAILED
             task.error = str(e)
-            result = {
-                "status": "error",
-                "message": f"任务执行失败: {str(e)}",
-                "error_code": "EXECUTION_ERROR",
-            }
+            result = {"status": "error", "message": str(e), "error_code": "EXECUTION_ERROR"}
 
-        # 8. 保存任务状态
-        await session_memory.update_task_state(session_id, task.model_dump())
-
-        # 9. 保存任务历史
+        # 6. 保存任务历史
         await task_memory.save_task(
-            task_id=task.task_id,
-            session_id=session_id,
-            user_id=user_id,
-            tenant_id=tenant_id,
-            task_type=task.task_type.value,
-            agent_name=task.agent_name,
-            input_data=task.input,
-            output_data=task.output,
-            status=task.state.value,
-            error_message=task.error,
+            task_id=task.task_id, session_id=session_id, user_id=user_id,
+            tenant_id=tenant_id, task_type=task.task_type.value,
+            agent_name=task.agent_name, input_data=task.input,
+            output_data=task.output, status=task.state.value,
         )
 
-        # 10. 保存助手回复
+        # 7. 保存助手回复
         await session_memory.add_message(session_id, "assistant", result.get("message", ""))
 
-        # 11. 更新用户最近查询
+        # 8. 更新用户最近查询
         if task_type in [TaskType.QUERY, TaskType.REPORT]:
-            await user_memory.add_recent_query(
-                user_id=user_id,
-                query=user_input,
-                sql=result.get("sql", ""),
-            )
+            await user_memory.add_recent_query(user_id=user_id, query=user_input, sql=result.get("sql", ""))
 
         return result
-
-    async def _identify_intent(self, user_input: str, messages: list[dict]) -> TaskType:
-        """识别用户意图
-
-        Args:
-            user_input: 用户输入
-            messages: 历史消息
-
-        Returns:
-            TaskType: 任务类型
-        """
-        # 使用 LLM 进行意图识别（更准确）
-        try:
-            from app.agent.llm_client import llm_client
-
-            prompt = f"""你是一个意图识别专家。根据用户的输入，判断用户想要做什么。
-
-## 用户输入
-{user_input}
-
-## 可选意图
-- query: 查询数据、统计、分析（例如："查询销售额"、"统计库存"、"分析趋势"）
-- report: 生成报表、图表（例如："生成销售报表"、"制作图表"）
-- create: 创建单据（例如："创建采购订单"、"新建销售订单"）
-- update: 更新单据状态（例如："审批采购订单"、"提交销售订单"）
-- knowledge: 查询知识、规则、流程（例如："采购流程是什么"、"如何审批订单"）
-
-## 输出格式
-只返回意图类型，不要解释。例如: query"""
-
-            response = await llm_client.chat(prompt)
-            intent = response.strip().lower()
-
-            # 映射到 TaskType
-            intent_map = {
-                "query": TaskType.QUERY,
-                "report": TaskType.REPORT,
-                "create": TaskType.CREATE,
-                "update": TaskType.UPDATE,
-                "knowledge": TaskType.KNOWLEDGE,
-            }
-
-            return intent_map.get(intent, TaskType.QUERY)
-
-        except Exception as e:
-            logger.warning(f"LLM 意图识别失败，使用关键词匹配: {e}")
-
-            # 降级到关键词匹配
-            user_input_lower = user_input.lower()
-
-            # 查询相关
-            query_keywords = ["查询", "查", "统计", "分析", "多少", "几个", "哪些", "排名", "排行"]
-            if any(kw in user_input_lower for kw in query_keywords):
-                return TaskType.QUERY
-
-            # 报表相关
-            report_keywords = ["报表", "报告", "图表", "可视化", "趋势"]
-            if any(kw in user_input_lower for kw in report_keywords):
-                return TaskType.REPORT
-
-            # 创建单据相关
-            create_keywords = ["创建", "新建", "添加", "录入", "下单"]
-            if any(kw in user_input_lower for kw in create_keywords):
-                return TaskType.CREATE
-
-            # 更新单据相关
-            update_keywords = ["更新", "修改", "审批", "提交", "驳回"]
-            if any(kw in user_input_lower for kw in update_keywords):
-                return TaskType.UPDATE
-
-            # 知识检索相关
-            knowledge_keywords = ["知识", "手册", "规则", "怎么", "如何", "教程", "流程"]
-            if any(kw in user_input_lower for kw in knowledge_keywords):
-                return TaskType.KNOWLEDGE
-
-            # 默认为查询
-            return TaskType.QUERY
