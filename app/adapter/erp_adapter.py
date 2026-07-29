@@ -3,13 +3,15 @@
 职责：
 - 封装 ERP API 调用
 - 幂等控制
-- 状态核对
+- 状态核对（Reconciliation）
 - 本地映射管理
 """
 
 import hashlib
+import json
 import logging
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import text
@@ -30,18 +32,7 @@ class ErpAdapter:
         user_id: str,
         tenant_id: str,
     ) -> dict:
-        """创建单据
-
-        Args:
-            doc_type: 单据类型
-            params: 参数
-            idempotency_key: 幂等键
-            user_id: 用户ID
-            tenant_id: 租户ID
-
-        Returns:
-            dict: 创建结果
-        """
+        """创建单据（带幂等控制）"""
         # 1. 幂等检查
         existing = await self._check_idempotency(idempotency_key)
         if existing:
@@ -63,8 +54,41 @@ class ErpAdapter:
         await self._create_order_mapping(task_id=None, step_id=None, erp_order_no=doc_no, erp_order_type=doc_type)
 
         logger.info(f"ERP 单据创建成功: {doc_no}")
-
         return {"status": "ok", "doc_no": doc_no}
+
+    async def reconcile_state(self, idempotency_key: str) -> dict:
+        """状态核对（断点恢复关键逻辑）
+
+        核对流程：
+        1. 查本地幂等记录
+        2. 如果有下游ID，说明已成功
+        3. 如果没有，查询ERP确认真实状态
+        """
+        # 1. 查本地记录
+        record = await self._check_idempotency(idempotency_key)
+
+        if record and record.get("downstream_ref_id"):
+            # 已有下游ID，说明已成功
+            return {
+                "status": "confirmed",
+                "doc_no": record["downstream_ref_id"],
+                "message": "单据已存在",
+            }
+
+        # 2. 查询映射表
+        mapping = await self._check_order_mapping(idempotency_key)
+        if mapping:
+            return {
+                "status": "confirmed",
+                "doc_no": mapping["erp_order_no"],
+                "message": "单据已创建",
+            }
+
+        # 3. 确认未执行
+        return {
+            "status": "not_found",
+            "message": "单据未创建，可以重新提交",
+        }
 
     async def _check_idempotency(self, idempotency_key: str) -> Optional[dict]:
         """检查幂等键"""
@@ -78,7 +102,6 @@ class ErpAdapter:
 
     async def _create_idempotency_record(self, key: str, target_system: str, request_hash: str):
         """创建幂等记录"""
-        from datetime import timedelta
         async for session in get_session():
             await session.execute(
                 text("""
@@ -122,9 +145,16 @@ class ErpAdapter:
             )
             await session.commit()
 
+    async def _check_order_mapping(self, idempotency_key: str) -> Optional[dict]:
+        """检查单据映射"""
+        async for session in get_session():
+            result = await session.execute(
+                text("SELECT * FROM erp_order_mapping WHERE task_id = :key OR step_id = :key"),
+                {"key": idempotency_key},
+            )
+            row = result.mappings().first()
+            return dict(row) if row else None
 
-import json
-import uuid
 
 # 全局实例
 erp_adapter = ErpAdapter()

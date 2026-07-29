@@ -33,7 +33,7 @@ class SearchTool:
         top_k: int = 5,
         category: Optional[str] = None,
     ) -> dict:
-        """执行向量检索
+        """执行混合检索（向量 + 关键词）
 
         Args:
             query: 查询文本
@@ -47,15 +47,19 @@ class SearchTool:
             # 0. 确保集合存在
             await self.create_collection()
 
-            # 1. 将查询文本转换为向量
+            # 1. 向量检索
             query_vector = await self._get_embedding(query)
+            vector_results = await self._search_vectors(query_vector, top_k * 2, category)
 
-            # 2. 在 Qdrant 中检索相似向量
-            results = await self._search_vectors(query_vector, top_k, category)
+            # 2. 关键词检索
+            keyword_results = await self._keyword_search(query, top_k * 2, category)
 
-            # 3. 格式化结果
+            # 3. 合并去重（RRF 融合）
+            merged = self._reciprocal_rank_fusion(vector_results, keyword_results, top_k)
+
+            # 4. 格式化结果
             chunks = []
-            for result in results:
+            for result in merged:
                 chunks.append({
                     "id": result.get("id"),
                     "title": result.get("payload", {}).get("title", ""),
@@ -72,7 +76,7 @@ class SearchTool:
             }
 
         except Exception as e:
-            logger.error(f"向量检索失败: {e}", exc_info=True)
+            logger.error(f"混合检索失败: {e}", exc_info=True)
             return {
                 "status": "error",
                 "chunks": [],
@@ -80,6 +84,67 @@ class SearchTool:
                 "count": 0,
                 "message": f"检索失败: {str(e)}",
             }
+
+    async def _keyword_search(self, query: str, top_k: int, category: Optional[str]) -> list[dict]:
+        """关键词检索"""
+        try:
+            search_request = {
+                "vector": [0] * 384,  # 占位向量
+                "limit": top_k,
+                "with_payload": True,
+                "query_filter": {
+                    "must": [
+                        {
+                            "key": "content",
+                            "match": {"text": query},
+                        }
+                    ]
+                } if category else None,
+            }
+
+            if category:
+                search_request["query_filter"]["must"].append({
+                    "key": "category",
+                    "match": {"value": category},
+                })
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.qdrant_url}/collections/{self.collection_name}/points/search",
+                    json={k: v for k, v in search_request.items() if v is not None},
+                    timeout=10,
+                )
+
+                if response.status_code == 200:
+                    return response.json().get("result", [])
+                return []
+
+        except Exception as e:
+            logger.warning(f"关键词检索失败: {e}")
+            return []
+
+    def _reciprocal_rank_fusion(self, vector_results: list, keyword_results: list, top_k: int) -> list[dict]:
+        """RRF 融合算法"""
+        scores = {}
+
+        # 向量检索得分
+        for rank, result in enumerate(vector_results):
+            doc_id = result.get("id")
+            if doc_id not in scores:
+                scores[doc_id] = {"result": result, "score": 0}
+            scores[doc_id]["score"] += 1 / (60 + rank)
+
+        # 关键词检索得分
+        for rank, result in enumerate(keyword_results):
+            doc_id = result.get("id")
+            if doc_id not in scores:
+                scores[doc_id] = {"result": result, "score": 0}
+            scores[doc_id]["score"] += 1 / (60 + rank)
+
+        # 按得分排序
+        sorted_results = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
+
+        return [item["result"] for item in sorted_results[:top_k]]
 
     async def _get_embedding(self, text: str) -> list[float]:
         """将文本转换为向量

@@ -21,16 +21,30 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    # 启动时：初始化数据库连接池和 Redis
     logger.info(f"启动 {settings.app_name} v{settings.app_version}")
 
+    # 初始化数据库
     from app.db.session import init_db
     await init_db()
     logger.info("数据库连接池初始化完成")
 
+    # 初始化 Redis
     from app.memory.session_memory import init_redis
     await init_redis()
     logger.info("Redis 连接初始化完成")
+
+    # 注册工具
+    from app.tools.registry import tool_registry
+    from app.tools.database_tool import DatabaseTool
+    from app.tools.search_tool import SearchTool
+    from app.tools.report_templates import report_template_engine
+
+    db_tool = DatabaseTool()
+    search_tool = SearchTool()
+
+    tool_registry.register("query_tool", db_tool.execute, "查询数据库", permission_level="medium")
+    tool_registry.register("knowledge_tool", search_tool.execute, "知识检索", permission_level="low")
+    logger.info(f"工具注册完成: {len(tool_registry.list_tools())} 个工具")
 
     # 启动 Task Worker
     from app.worker.task_worker import task_worker
@@ -43,7 +57,7 @@ async def lifespan(app: FastAPI):
     from app.worker.task_worker import task_worker
     await task_worker.stop()
 
-    # 关闭时：清理连接池
+    # 清理
     from app.db.session import close_db
     await close_db()
 
