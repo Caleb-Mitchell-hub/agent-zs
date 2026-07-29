@@ -32,7 +32,16 @@ async def lifespan(app: FastAPI):
     await init_redis()
     logger.info("Redis 连接初始化完成")
 
+    # 启动 Task Worker
+    from app.worker.task_worker import task_worker
+    await task_worker.start()
+    logger.info("Task Worker 启动完成")
+
     yield
+
+    # 停止 Task Worker
+    from app.worker.task_worker import task_worker
+    await task_worker.stop()
 
     # 关闭时：清理连接池
     from app.db.session import close_db
