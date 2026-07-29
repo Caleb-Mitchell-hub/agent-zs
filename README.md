@@ -1,90 +1,132 @@
-# Agent-Zs — ERP 自然语言操作层
+# Agent-Zs — 企业级 ERP 自然语言智能操作层
 
-让业务人员用自然语言查询 ERP 数据、生成报表。
+## 项目简介
+
+让业务人员用自然语言替代复杂 ERP 操作。支持查询数据、创建单据、知识检索、报表生成。
+
+## 功能列表
+
+| 功能 | 说明 | 示例 |
+|------|------|------|
+| 自然语言查询 | NL→SQL，查询业务数据 | "查询所有仓库的库存" |
+| 创建单据 | 支持采购订单、销售订单、报销单等 | "创建采购订单，供应商华为，仓库北京中心仓" |
+| 知识检索 | 从企业知识库语义搜索 | "采购订单审批流程是什么" |
+| 报表生成 | 数据可视化 | "统计本月销售额" |
+
+## 支持的单据类型
+
+| 单据 | 必填字段 |
+|------|----------|
+| 采购订单 | 供应商名称、仓库名称、订单日期 |
+| 销售订单 | 客户名称、仓库名称、订单日期 |
+| 报销单 | 报销类型、金额、费用日期 |
+| 入库单 | 仓库名称、入库类型 |
+| 出库单 | 仓库名称、出库类型 |
 
 ## 快速开始
 
-### 本地开发
+### 1. 访问前端页面
 
-```bash
-# 安装依赖
-pip install -r requirements.txt
-
-# 创建 .env 文件
-cp .env.example .env
-# 编辑 .env 填入 LLM API Key
-
-# 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+http://172.177.3.43:8001/
 ```
 
-### Docker 部署
+直接在对话框输入问题即可使用。
+
+### 2. API 调用
 
 ```bash
-# 创建 .env 文件
-cp .env.example .env
-# 编辑 .env 填入配置
+# 查询
+curl -X POST http://172.177.3.43:8001/api/v1/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer any-token" \
+  -d '{"question": "查询所有仓库的库存"}'
 
-# 启动服务
-docker compose up -d
+# 创建单据
+curl -X POST http://172.177.3.43:8001/api/v1/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer any-token" \
+  -d '{"question": "创建采购订单，供应商华为，仓库北京中心仓，金额50000"}'
+
+# 知识检索
+curl -X POST http://172.177.3.43:8001/api/v1/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer any-token" \
+  -d '{"question": "采购订单审批流程是什么"}'
+```
+
+### 3. 前端接入
+
+在你的 ERP 前端代码中添加：
+
+```javascript
+async function askAgent(question) {
+  const response = await fetch('http://172.177.3.43:8001/api/v1/query', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + erpToken  // ERP 的 token
+    },
+    body: JSON.stringify({ question: question })
+  });
+  return await response.json();
+}
+
+// 使用
+const result = await askAgent('查询库存');
+console.log(result.data);
 ```
 
 ## API 端点
 
 | 端点 | 方法 | 说明 | 认证 |
 |------|------|------|------|
+| `/` | GET | 前端对话页面 | 否 |
 | `/health` | GET | 健康检查 | 否 |
-| `/api/v1/query` | POST | 自然语言查询 | Bearer Token |
-| `/api/v1/query/stream` | GET | SSE 流式查询 | Bearer Token |
-| `/api/v1/report` | POST | 报表生成 | Bearer Token |
+| `/api/v1/query` | POST | 自然语言查询/创建单据 | Bearer Token |
 | `/api/v1/admin` | GET | 管理页面 | 否 |
-| `/api/v1/admin/config` | GET/POST | 配置读写 | 否 |
-
-### 查询示例
-
-```bash
-curl -X POST http://localhost:8000/api/v1/query \
-  -H "Authorization: Bearer your-token" \
-  -H "Content-Type: application/json" \
-  -d '{"question": "统计每个仓库的库存总数量"}'
-```
-
-## 测试
-
-```bash
-pytest tests/ -v
-```
+| `/api/v1/admin/agents` | GET | Agent 列表 | 否 |
+| `/api/v1/workflow/list` | GET | 工作流列表 | 否 |
 
 ## 项目结构
 
 ```
 app/
-├── main.py           # FastAPI 入口
-├── config.py         # 配置管理
-├── routers/          # API 端点
-│   ├── health.py     # 健康检查
-│   ├── query.py      # 查询端点
-│   ├── report.py     # 报表端点
-│   └── admin.py      # 管理页面
-├── tools/            # 工具层
-│   ├── query_tool.py    # SQL 沙箱
-│   ├── report_tool.py   # 报表生成
-│   └── schema_tool.py   # Schema 获取
-├── agent/            # 编排层
-│   ├── orchestrator.py  # 查询/报表编排
-│   ├── llm_client.py    # LLM 客户端
-│   └── prompts.py       # Prompt 模板
-├── db/               # 数据库层
-│   ├── session.py       # 连接池管理
-│   └── schema.py        # Schema 导出
-├── gateway/          # 网关层
-│   ├── auth.py          # Token 认证
-│   └── rate_limit.py    # 速率限制
-└── models/           # 数据模型
-    └── schemas.py       # Pydantic 模型
+├── main.py              # 入口
+├── config.py            # 配置
+├── adapter/             # ERP 适配层
+├── agents/              # Agent 层
+│   ├── data_agent.py    # 数据查询
+│   ├── write_agent.py   # 单据创建
+│   ├── knowledge_agent.py # 知识检索
+│   └── report_agent.py  # 报表生成
+├── gateway/             # 网关层
+├── memory/              # 记忆层
+├── orchestrator/        # 编排器
+├── runtime/             # 运行时
+├── security/            # 安全模块
+├── tools/               # 工具层
+└── routers/             # 路由层
 ```
 
-## 文档
+## 部署信息
 
-- [设计文档](docs/design.md)
+| 服务 | 地址 |
+|------|------|
+| Agent-Zs | http://172.177.3.43:8001 |
+| Redis | 172.177.3.43:6381 |
+| Qdrant | 172.177.3.43:6333 |
+| MySQL | 172.177.3.43:3309 |
+
+## 技术栈
+
+- 后端：Python FastAPI
+- 数据库：MySQL 8.0
+- 缓存：Redis 7
+- 向量数据库：Qdrant
+- LLM：DeepSeek
+
+## 相关文档
+
+- [设计方案](docs/企业级Agent系统设计方案from claude code.md)
 - [环境配置](ENVIRONMENT.md)
