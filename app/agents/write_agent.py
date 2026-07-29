@@ -41,21 +41,29 @@ DOC_TYPE_FIELDS = {
         "required": ["warehouse_name", "out_type"],
         "optional": ["source_no", "remark"],
     },
+    "expense_reimbursement": {
+        "name": "报销单",
+        "required": ["expense_type", "amount", "expense_date"],
+        "optional": ["description", "attachment"],
+    },
 }
 
 EXTRACT_PARAMS_PROMPT = """你是一个 ERP 参数提取专家。根据用户输入提取创建单据所需参数。
+
+支持的单据类型：
+- purchase_order: 采购订单
+- sales_order: 销售订单
+- stock_in_order: 入库单
+- stock_out_order: 出库单
+- expense_reimbursement: 报销单
 
 用户输入: {user_input}
 
 返回 JSON:
 {{
-    "doc_type": "purchase_order/sales_order/stock_in_order/stock_out_order",
+    "doc_type": "单据类型",
     "params": {{
-        "supplier_name": "供应商名称",
-        "warehouse_name": "仓库名称",
-        "order_date": "YYYY-MM-DD",
-        "total_amount": 金额数字,
-        "remark": "备注"
+        "字段名": "值"
     }}
 }}
 
