@@ -1,39 +1,24 @@
 """Agent Orchestrator - 系统大脑
 
-职责：
-- 意图理解（两级机制）
+基于 LangGraph 图编排：
+- 意图理解（规则引擎优先，LLM 兜底）
 - 任务规划
 - 选择 Agent
 - 管理执行流程
 - 安全防护
+
+图结构见 app/orchestrator/langgraph_flow.py，节点严格区分确定性/LLM。
+对外保持 process() 签名不变，路由层无需改动。
 """
 
-import json
 import logging
-import re
 import uuid
-from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel
 
-from app.agents.data_agent import DataAgent
-from app.agents.write_agent import WriteAgent
-from app.agents.knowledge_agent import KnowledgeAgent
-from app.agents.report_agent import ReportAgent
-from app.memory import session_memory
-from app.memory.task_memory import task_memory
-from app.memory.user_memory import user_memory
-from app.memory.extractor import memory_extractor
-from app.adapter.erp_adapter import erp_adapter
-from app.gateway.model_gateway import model_gateway
-from app.security.prompt_guard import prompt_guard
-from app.security.data_masking import data_masking
-from app.security.circuit_breaker import circuit_breaker_manager
-from app.security.tracing import generate_trace_id, set_trace_id, get_trace_id
-from app.security.audit import audit_logger
-from app.orchestrator.planner import planner
-from app.tools.registry import tool_registry
+from app.security.tracing import generate_trace_id, set_trace_id
+from app.orchestrator.langgraph_flow import get_graph
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +30,8 @@ class TaskType(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     KNOWLEDGE = "knowledge"
+    MEMORY = "memory"
+    CHAT = "chat"
     UNKNOWN = "unknown"
 
 
@@ -73,122 +60,56 @@ class Orchestrator:
     """Agent 编排器"""
 
     def __init__(self):
-        self.data_agent = DataAgent()
-        self.write_agent = WriteAgent()
-        self.knowledge_agent = KnowledgeAgent()
-        self.report_agent = ReportAgent()
+        self.graph = get_graph()
 
-    async def process(self, user_input: str, session_id: str, user_id: int, tenant_id: int) -> dict:
-        """处理用户请求"""
+    async def process(
+        self,
+        user_input: str,
+        session_id: str,
+        user_id: int,
+        tenant_id: int,
+        intent: str = None,
+    ) -> dict:
+        """处理用户请求（基于 LangGraph 图执行）
 
-        # 0. 生成 trace_id，贯穿全链路
+        Args:
+            user_input: 用户输入
+            session_id: 会话 ID
+            user_id: 用户 ID
+            tenant_id: 租户 ID
+            intent: 前端直达意图（可选，快捷按钮直接携带，跳过分类）
+
+        Returns:
+            dict: 执行结果
+        """
+        # 生成 trace_id，贯穿全链路
         trace_id = generate_trace_id()
         set_trace_id(trace_id)
 
-        # 1. 安全检查：Prompt 注入防护
-        safety_check = prompt_guard.check_input(user_input)
-        if not safety_check["safe"]:
-            logger.warning(f"检测到注入威胁: {safety_check['threats']}")
-            await audit_logger.log("unsafe_input", str(user_id), str(tenant_id), {"input": user_input}, risk_level="high", trace_id=trace_id)
-            return {"status": "error", "message": "输入包含不安全内容", "error_code": "UNSAFE_INPUT"}
+        # 从 Redis 加载会话历史
+        from app.memory.session_memory import get_messages, get_context
+        messages = await get_messages(session_id)
+        context = await get_context(session_id)
 
-        # 2. 清理输入
-        clean_input = prompt_guard.sanitize_input(user_input)
+        # 初始状态
+        state = {
+            "user_input": user_input,
+            "session_id": session_id,
+            "user_id": user_id,
+            "tenant_id": tenant_id,
+            "intent": intent,
+            "trace_id": trace_id,
+            "messages": messages,
+            "context": context,
+        }
 
-        # 3. 保存用户消息
-        await session_memory.add_message(session_id, "user", clean_input)
-
-        # 4. 获取上下文
-        context = await session_memory.get_context(session_id)
-        messages = await session_memory.get_messages(session_id)
-
-        # 5. 意图识别（两级机制）
-        intent = await planner.classify_intent(clean_input)
-        task_type = TaskType(intent) if intent in [t.value for t in TaskType] else TaskType.QUERY
-
-        # 6. 创建任务
-        task = Task(
-            task_id=f"task-{uuid.uuid4().hex[:8]}",
-            task_type=task_type,
-            state=TaskState.PLANNING,
-            input={"user_input": clean_input, "context": context},
-        )
-
-        # 7. 记录审计日志
-        await audit_logger.log(
-            action=f"task_{task_type.value}",
-            user_id=str(user_id),
-            tenant_id=str(tenant_id),
-            request_snapshot={"user_input": clean_input},
-            trace_id=trace_id,
-        )
-
-        # 6. 执行任务（带熔断保护）
         try:
-            task.state = TaskState.EXECUTING
-
-            if task_type == TaskType.QUERY:
-                task.agent_name = "data_agent"
-                if not circuit_breaker_manager.can_execute("data_agent"):
-                    return {"status": "error", "message": "查询服务暂时不可用", "error_code": "CIRCUIT_OPEN"}
-                result = await self.data_agent.execute(clean_input, messages, context, session_id, user_id, tenant_id)
-                circuit_breaker_manager.record_success("data_agent")
-
-            elif task_type == TaskType.CREATE:
-                task.agent_name = "write_agent"
-                if not circuit_breaker_manager.can_execute("write_agent"):
-                    return {"status": "error", "message": "创建服务暂时不可用", "error_code": "CIRCUIT_OPEN"}
-                result = await self.write_agent.execute(clean_input, messages, context, session_id, user_id, tenant_id)
-                circuit_breaker_manager.record_success("write_agent")
-
-            elif task_type == TaskType.KNOWLEDGE:
-                task.agent_name = "knowledge_agent"
-                if not circuit_breaker_manager.can_execute("knowledge_agent"):
-                    return {"status": "error", "message": "知识服务暂时不可用", "error_code": "CIRCUIT_OPEN"}
-                result = await self.knowledge_agent.execute(clean_input, messages, context, session_id, user_id, tenant_id)
-                circuit_breaker_manager.record_success("knowledge_agent")
-
-            elif task_type == TaskType.REPORT:
-                task.agent_name = "report_agent"
-                if not circuit_breaker_manager.can_execute("report_agent"):
-                    return {"status": "error", "message": "报表服务暂时不可用", "error_code": "CIRCUIT_OPEN"}
-                result = await self.report_agent.execute(clean_input, messages, context, session_id, user_id, tenant_id)
-                circuit_breaker_manager.record_success("report_agent")
-
-            else:
-                result = {"status": "error", "message": "暂不支持该类型的操作", "error_code": "UNSUPPORTED_TASK"}
-
-            task.output = result
-            task.state = TaskState.COMPLETED if result.get("status") == "ok" else TaskState.FAILED
-
+            result = await self.graph.ainvoke(state)
+            return result.get("result") or {
+                "status": "error",
+                "message": "编排执行未返回结果",
+                "error_code": "EMPTY_RESULT",
+            }
         except Exception as e:
-            logger.error(f"任务执行失败: {e}", exc_info=True)
-            task.state = TaskState.FAILED
-            task.error = str(e)
-            result = {"status": "error", "message": str(e), "error_code": "EXECUTION_ERROR"}
-
-            # 记录失败（触发熔断）
-            if task.agent_name:
-                circuit_breaker_manager.record_failure(task.agent_name)
-
-        # 7. 保存任务历史
-        await task_memory.save_task(
-            task_id=task.task_id, session_id=session_id, user_id=user_id,
-            tenant_id=tenant_id, task_type=task.task_type.value,
-            agent_name=task.agent_name, input_data=task.input,
-            output_data=task.output, status=task.state.value,
-        )
-
-        # 8. 保存助手回复
-        await session_memory.add_message(session_id, "assistant", result.get("message", ""))
-
-        # 9. 记忆抽取
-        if await memory_extractor.should_extract(messages):
-            conversation = "\n".join([f"{m['role']}: {m['content']}" for m in messages[-10:]])
-            await memory_extractor.extract_and_save(conversation, str(user_id), str(tenant_id), session_id)
-
-        # 10. 脱敏处理（日志）
-        masked_result = data_masking.mask_for_log(result)
-        logger.info(f"任务完成: {task.task_id}, 状态: {task.state.value}")
-
-        return result
+            logger.error(f"编排执行失败: {e}", exc_info=True)
+            return {"status": "error", "message": str(e), "error_code": "EXECUTION_ERROR"}
