@@ -55,7 +55,7 @@ async def index():
     <body>
         <div class="header">
             <h1>AI 智能助手</h1>
-            <span class="status">Agent-Zs v1.0</span>
+            <span class="status" id="headerRight">Agent-Zs v1.0</span>
         </div>
         <div class="container">
             <div class="quick-actions">
@@ -72,8 +72,31 @@ async def index():
             </div>
         </div>
         <script>
+            // ── 认证检查 ──────────────────────────────────
+            const token = localStorage.getItem('token');
+            if (!token) { window.location.href = '/login'; }
+
+            // 解析 JWT 获取用户名
+            function getUserDisplayName() {
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    return payload.real_name || payload.username || '未命名用户';
+                } catch(e) { return '未命名用户'; }
+            }
+
+            // 更新 header 显示用户名 + 退出
+            document.getElementById('headerRight').innerHTML =
+                getUserDisplayName() +
+                ' | <a href="#" onclick="logout()" style="color:#fff;text-decoration:underline;">退出</a>';
+
+            function logout() {
+                localStorage.removeItem('token');
+                localStorage.removeItem('userName');
+                window.location.href = '/login';
+            }
+
+            // ── 会话 ──────────────────────────────────────
             const API = '/api/v1/query';
-            // 页面加载时生成唯一会话ID，同一窗口内共享记忆
             const sessionId = 'web-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
             const chatBox = document.getElementById('chatBox');
             const input = document.getElementById('input');
@@ -137,7 +160,7 @@ async def index():
                 try {
                     const res = await fetch(API, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                         body: JSON.stringify({ question: q, session_id: sessionId, intent: intent })
                     });
                     const data = await res.json();
@@ -153,6 +176,114 @@ async def index():
             }
 
             addMessage('assistant', '你好！我是 AI 智能助手，可以帮你查询数据、创建单据、检索知识。请问有什么需要？');
+        </script>
+    </body>
+    </html>
+    """
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page():
+    """登录页面"""
+    return """
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>登录 - Agent-Zs</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+            .header { background: #1890ff; color: white; padding: 16px 24px; text-align: center; }
+            .header h1 { font-size: 18px; font-weight: 500; }
+            .login-container { flex: 1; display: flex; align-items: center; justify-content: center; }
+            .login-card { background: white; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); padding: 40px; width: 400px; max-width: 90vw; }
+            .login-card h2 { text-align: center; color: #333; margin-bottom: 32px; font-size: 20px; font-weight: 500; }
+            .form-group { margin-bottom: 20px; }
+            .form-group label { display: block; margin-bottom: 6px; color: #666; font-size: 14px; }
+            .form-group input { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; outline: none; transition: border-color 0.2s; }
+            .form-group input:focus { border-color: #1890ff; box-shadow: 0 0 0 2px rgba(24,144,255,0.2); }
+            .login-btn { width: 100%; padding: 12px; background: #1890ff; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; transition: background 0.2s; }
+            .login-btn:hover { background: #40a9ff; }
+            .login-btn:disabled { background: #d9d9d9; cursor: not-allowed; }
+            .error-msg { color: #ff4d4f; font-size: 13px; text-align: center; margin-top: 16px; display: none; }
+            .error-msg.show { display: block; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Agent-Zs 企业智能助手</h1>
+        </div>
+        <div class="login-container">
+            <div class="login-card">
+                <h2>用户登录</h2>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="username" placeholder="请输入用户名" autocomplete="username" autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="login-btn" id="loginBtn">登 录</button>
+                </form>
+                <div class="error-msg" id="errorMsg"></div>
+            </div>
+        </div>
+        <script>
+            // 已登录则直接跳转
+            if (localStorage.getItem('token')) {
+                window.location.href = '/';
+            }
+
+            const form = document.getElementById('loginForm');
+            const usernameEl = document.getElementById('username');
+            const passwordEl = document.getElementById('password');
+            const loginBtn = document.getElementById('loginBtn');
+            const errorMsg = document.getElementById('errorMsg');
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const username = usernameEl.value.trim();
+                const password = passwordEl.value.trim();
+
+                if (!username || !password) {
+                    showError('请输入用户名和密码');
+                    return;
+                }
+
+                loginBtn.disabled = true;
+                loginBtn.textContent = '登录中...';
+                errorMsg.classList.remove('show');
+
+                try {
+                    const res = await fetch('/api/v1/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'ok') {
+                        localStorage.setItem('token', data.token);
+                        localStorage.setItem('userName', data.user.real_name || data.user.username);
+                        window.location.href = '/';
+                    } else {
+                        showError(data.message || '用户名或密码错误');
+                    }
+                } catch (err) {
+                    showError('网络错误，请检查连接');
+                } finally {
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '登 录';
+                }
+            });
+
+            function showError(msg) {
+                errorMsg.textContent = msg;
+                errorMsg.classList.add('show');
+            }
         </script>
     </body>
     </html>

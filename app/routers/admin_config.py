@@ -13,12 +13,12 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.config_center.service import config_service
-from app.gateway.auth import _decode_token
+from app.gateway.auth import require_admin
 from app.security.data_masking import data_masking
 from app.security.crypto import config_crypto
 
@@ -84,19 +84,13 @@ class ConfirmBody(BaseModel):
 
 # ─────────────────────────── 依赖 ───────────────────────────
 
-async def get_admin_context(request: Request) -> dict:
-    """解析操作人上下文（写审计用，当前 RBAC 未接入，保证可追溯）"""
-    auth = request.headers.get("Authorization", "")
-    token = auth.replace("Bearer ", "").strip()
-    try:
-        info = _decode_token(token) if token else {}
-        return {
-            "user_id": info.get("user_id", "system_admin"),
-            "tenant_id": info.get("tenant_id", 1),
-            "roles": info.get("roles", []),
-        }
-    except Exception:
-        return {"user_id": "system_admin", "tenant_id": 1, "roles": []}
+async def get_admin_context(user_info: dict = Depends(require_admin)) -> dict:
+    """解析操作人上下文（写审计用，要求管理员权限）"""
+    return {
+        "user_id": user_info.get("user_id"),
+        "tenant_id": user_info.get("tenant_id", 1),
+        "roles": user_info.get("roles", []),
+    }
 
 
 # ─────────────────────────── 页面 ───────────────────────────
@@ -110,7 +104,7 @@ async def config_page():
 # ─────────────────────────── 审计日志 ───────────────────────────
 
 @router.get("/admin/config/audit-logs")
-async def get_audit_logs_endpoint(action: str = "", limit: int = 100):
+async def get_audit_logs_endpoint(action: str = "", limit: int = 100, user_info: dict = Depends(require_admin)):
     """查看审计日志"""
     from app.security.audit import audit_logger
     logs = await audit_logger.get_audit_logs(action=action or None, limit=limit)
@@ -140,7 +134,7 @@ async def test_llm_connection(body: LLMConfigBody, ctx: dict = Depends(get_admin
 
 
 @router.get("/admin/config/llm")
-async def get_llm_config():
+async def get_llm_config(user_info: dict = Depends(require_admin)):
     """读取 LLM 连接配置（api_key 脱敏）"""
     config = await config_service.get_llm_config_masked()
     return {"status": "ok", "data": config}
@@ -157,14 +151,14 @@ async def save_llm_config(body: LLMConfigBody, ctx: dict = Depends(get_admin_con
 
 
 @router.get("/admin/config/model-routes")
-async def list_model_routes():
+async def list_model_routes(user_info: dict = Depends(require_admin)):
     """列出模型路由"""
     routes = await config_service.list_model_routes()
     return {"status": "ok", "data": routes}
 
 
 @router.get("/admin/config/model-routes/task-types")
-async def get_task_types():
+async def get_task_types(user_info: dict = Depends(require_admin)):
     """已知任务类型（下拉源）"""
     return {"status": "ok", "data": config_service.known_task_types()}
 
@@ -202,7 +196,7 @@ class KnowledgeBody(BaseModel):
 
 
 @router.get("/admin/config/knowledge")
-async def list_knowledge(keyword: str = "", category: str = ""):
+async def list_knowledge(keyword: str = "", category: str = "", user_info: dict = Depends(require_admin)):
     """列出知识库"""
     items = await config_service.list_knowledge(keyword=keyword, category=category)
     return {"status": "ok", "data": items}
@@ -234,7 +228,7 @@ async def delete_knowledge(knowledge_id: int, ctx: dict = Depends(get_admin_cont
 # ─────────────────────────── Tab3 工具与风险策略 ───────────────────────────
 
 @router.get("/admin/config/tools")
-async def list_tools():
+async def list_tools(user_info: dict = Depends(require_admin)):
     """列出工具完整策略"""
     result = await config_service.list_tool_policies()
     return {"status": "ok", "data": result.get("tools", [])}
@@ -265,7 +259,7 @@ async def reset_tool_policy(tool_name: str, ctx: dict = Depends(get_admin_contex
 # ─────────────────────────── Tab4 数据源连接 ───────────────────────────
 
 @router.get("/admin/config/datasources")
-async def list_datasources():
+async def list_datasources(user_info: dict = Depends(require_admin)):
     """列出数据源"""
     items = await config_service.list_datasources()
     return {"status": "ok", "data": items}
@@ -320,7 +314,7 @@ async def delete_datasource(datasource_id: int, ctx: dict = Depends(get_admin_co
 
 
 @router.get("/admin/config/change-requests")
-async def list_change_requests(status: str = "pending"):
+async def list_change_requests(status: str = "pending", user_info: dict = Depends(require_admin)):
     """列出待确认队列"""
     items = await config_service.list_change_requests(status=status)
     return {"status": "ok", "data": items}
@@ -348,7 +342,7 @@ async def cancel_change_request(request_id: int, body: ConfirmBody, ctx: dict = 
 # ─────────────────────────── Tab5 限流与配额 ───────────────────────────
 
 @router.get("/admin/config/rate-limits")
-async def list_rate_limits():
+async def list_rate_limits(user_info: dict = Depends(require_admin)):
     """列出限流配额"""
     items = await config_service.list_rate_limits()
     return {"status": "ok", "data": items}
@@ -380,7 +374,7 @@ async def delete_rate_limit(scope_type: str, scope_id: str, ctx: dict = Depends(
 # ─────────────────────────── Tab6 保留期 ───────────────────────────
 
 @router.get("/admin/config/retention")
-async def get_retention():
+async def get_retention(user_info: dict = Depends(require_admin)):
     """读取保留期配置"""
     retention = await config_service.get_retention()
     return {"status": "ok", "data": retention}
@@ -679,7 +673,9 @@ def _render_config_page() -> str:
 
         <script>
             const BASE = '/api/v1/admin/config';
-            const TOKEN = 'Bearer test-token-1234567890';
+            const TOKEN = 'Bearer ' + (localStorage.getItem('token') || '');
+            // 未登录则跳转
+            if (!localStorage.getItem('token')) { window.location.href = '/login'; }
             const $ = id => document.getElementById(id);
             let pendingRequestId = null;
             let pendingConfirmData = null;

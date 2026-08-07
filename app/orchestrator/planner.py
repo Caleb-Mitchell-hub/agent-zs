@@ -250,17 +250,74 @@ class Planner:
         )
         return None
 
-    async def classify_intent(self, user_input: str, messages: list[dict] | None = None) -> str:
+    def _is_data_follow_up(self, user_input: str, context: dict) -> bool:
+        """上下文感知：判断当前输入是否在追问/质疑上一轮的数据查询结果。
+
+        场景：用户刚查到数据，追问"什么意思只有2个仓库？""为什么？"等。
+        这些输入不含标准查询关键词，规则引擎零命中，LLM 容易误判为 chat/knowledge，
+        但实际上用户是在对数据结果做出反应，应路由到 data_node 重新查询/解释。
+
+        Args:
+            user_input: 当前用户输入
+            context: 会话上下文（含 last_result）
+
+        Returns:
+            bool: 是否为数据追问
+        """
+        last_result = context.get("last_result")
+        if not last_result:
+            return False
+
+        data = last_result.get("data") if isinstance(last_result, dict) else None
+        if not data or not isinstance(data, list) or len(data) == 0:
+            return False
+
+        # 数据追问的典型特征（任一命中即可）：
+        # A. 对结果数量/范围的质疑或追问
+        data_question_patterns = [
+            "什么意思", "为什么", "怎么只有", "就这些", "就这",
+            "只有", "才", "不对吧", "确定吗", "有没有遗漏",
+            "还有", "其他的", "剩下的", "全部的", "所有的",
+            "就这么", "没别的", "没其他",
+        ]
+        if any(pat in user_input for pat in data_question_patterns):
+            return True
+
+        # B. 追问结果中出现的具体值（数字、仓库名、字段值等）
+        # 提取上一轮结果中的字符串值，检查是否在用户输入中出现
+        for row in data[:5]:
+            if isinstance(row, dict):
+                for val in row.values():
+                    val_str = str(val)
+                    if len(val_str) >= 2 and val_str in user_input:
+                        return True
+
+        # C. 极短追问（≤6字）且上一轮是数据查询 → 很可能是对结果的反应
+        # 注意：阈值 6 经过仔细权衡，再宽会误判"北京仓库有哪些"这样的新查询
+        last_query = context.get("last_query", "")
+        if len(user_input) <= 6 and last_query:
+            # 排除明确不是数据追问的闲聊信号
+            chat_signals = ["你好", "您好", "哈喽", "嗨", "在吗", "谢谢", "再见", "你是谁"]
+            if not any(s in user_input for s in chat_signals):
+                return True
+
+        return False
+
+    async def classify_intent(
+        self, user_input: str, messages: list[dict] | None = None, context: dict | None = None,
+    ) -> str:
         """意图分类：规则引擎优先，LLM 兜底
 
         流程：
         1. 规则引擎打分判定 — 无歧义时直接返回，不调用 LLM（零延迟、零成本）
-        2. 歧义或未命中 → 调用 LLM（带对话上下文），输出做合法性校验
+        2. 上下文感知 — 上一轮有查询结果且当前输入似数据追问时，直接判 query
+        3. 歧义或未命中 → 调用 LLM（带对话上下文），输出做合法性校验
            （校验失败兜底返回 "query"，不向透传脏数据）
 
         Args:
             user_input: 用户输入
             messages: 对话历史消息列表
+            context: 会话上下文（含 last_result / last_query 等）
 
         Returns:
             str: 意图类别
@@ -274,7 +331,12 @@ class Planner:
         if rule_result is not None:
             return rule_result
 
-        # 2. 规则引擎无法裁决 → LLM 兜底（带对话上下文）
+        # 2. 上下文感知：上一轮有数据查询结果，当前输入似在追问/质疑数据
+        if self._is_data_follow_up(user_input, context or {}):
+            logger.info(f"上下文感知判定为 query: {user_input[:50]}")
+            return "query"
+
+        # 3. 规则引擎无法裁决 → LLM 兜底（带对话上下文）
         history_text = "（无历史对话）"
         if messages:
             recent = messages[-20:]  # 最近20条消息（10轮对话）

@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.logging_config import setup_logging
 from app.middleware import RequestLoggingMiddleware, ExceptionHandlerMiddleware
-from app.routers import health, query, report, write, rag, admin, workflow, frontend, admin_config
+from app.routers import health, query, report, write, rag, admin, workflow, frontend, admin_config, auth
 from app.tools.registry import ToolExecutor
 
 # 配置日志
@@ -102,4 +102,5 @@ app.include_router(write.router, prefix="/api/v1", tags=["单据"])
 app.include_router(rag.router, prefix="/api/v1", tags=["知识检索"])
 app.include_router(admin.router, prefix="/api/v1", tags=["管理"])
 app.include_router(admin_config.router, prefix="/api/v1", tags=["配置中心"])
+app.include_router(auth.router, prefix="/api/v1", tags=["认证"])
 app.include_router(workflow.router, prefix="/api/v1", tags=["工作流"])

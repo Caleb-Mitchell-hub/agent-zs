@@ -123,7 +123,8 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        timeout = getattr(settings, 'llm_timeout', 120)
+        async with httpx.AsyncClient(timeout=float(timeout)) as client:
             response = await client.post(
                 f"{base_url}/v1/chat/completions",
                 headers=headers,
@@ -150,7 +151,8 @@ class LLMClient:
             "messages": [{"role": "user", "content": prompt}],
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        timeout = getattr(settings, 'llm_timeout', 120)
+        async with httpx.AsyncClient(timeout=float(timeout)) as client:
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers=headers,

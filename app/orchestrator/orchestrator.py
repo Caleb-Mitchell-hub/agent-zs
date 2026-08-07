@@ -69,6 +69,7 @@ class Orchestrator:
         user_id: int,
         tenant_id: int,
         intent: str = None,
+        user_permissions: dict | None = None,
     ) -> dict:
         """处理用户请求（基于 LangGraph 图执行）
 
@@ -101,6 +102,7 @@ class Orchestrator:
             "trace_id": trace_id,
             "messages": messages,
             "context": context,
+            "user_permissions": user_permissions or {},
         }
 
         try:
@@ -112,4 +114,5 @@ class Orchestrator:
             }
         except Exception as e:
             logger.error(f"编排执行失败: {e}", exc_info=True)
-            return {"status": "error", "message": str(e), "error_code": "EXECUTION_ERROR"}
+            err_msg = str(e) if str(e) else f"执行超时（{type(e).__name__}），请稍后重试"
+            return {"status": "error", "message": err_msg, "error_code": "EXECUTION_ERROR"}

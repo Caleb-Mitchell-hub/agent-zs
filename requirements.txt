@@ -17,8 +17,10 @@ httpx==0.27.0
 # 编排框架（LangGraph 图编排）
 langgraph>=0.2.0
 
-# 加密（配置中心敏感字段 Fernet 加密）
+# 加密（配置中心敏感字段 Fernet 加密 + 密码验证 + JWT）
 cryptography>=42.0.0
+passlib[bcrypt]>=1.7.4
+PyJWT>=2.8.0
 
 # 工具
 python-dotenv==1.0.1

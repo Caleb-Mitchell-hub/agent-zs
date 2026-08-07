@@ -34,12 +34,21 @@ async def natural_language_query(
 
     logger.info(f"用户 {user_info['user_id']} 查询: {req.question}")
 
+    # 提取用户数据权限（行级安全）
+    user_permissions = {
+        "warehouse_ids": user_info.get("warehouse_ids", []),
+        "region_ids": user_info.get("region_ids", []),
+        "customer_ids": user_info.get("customer_ids", []),
+        "product_ids": user_info.get("product_ids", []),
+    }
+
     result = await orchestrator.process(
         user_input=req.question,
         session_id=session_id,
         user_id=user_info["user_id"],
         tenant_id=user_info.get("tenant_id", 1),
         intent=req.intent,
+        user_permissions=user_permissions,
     )
 
     return QueryResponse(**result)
@@ -69,6 +78,12 @@ async def natural_language_query_stream(
             session_id=session_id,
             user_id=user_info["user_id"],
             tenant_id=user_info.get("tenant_id", 1),
+            user_permissions={
+                "warehouse_ids": user_info.get("warehouse_ids", []),
+                "region_ids": user_info.get("region_ids", []),
+                "customer_ids": user_info.get("customer_ids", []),
+                "product_ids": user_info.get("product_ids", []),
+            },
         )
 
         yield json.dumps({

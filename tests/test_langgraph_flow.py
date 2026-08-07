@@ -113,7 +113,7 @@ async def test_query_routing_to_data_node(graph, monkeypatch):
     """测试 query 意图路由到 data_node，且 data_node 被调用"""
     called = []
 
-    async def fake_data_agent_execute(self, user_input, messages, context, session_id, user_id, tenant_id):
+    async def fake_data_agent_execute(self, user_input, messages, context, session_id, user_id, tenant_id, user_permissions=None):
         called.append(user_input)
         return {"status": "ok", "data": [{"仓库": "北京仓"}], "sql": "SELECT 1", "message": "查询到 1 条记录"}
 

@@ -32,6 +32,7 @@ class DataAgent:
         session_id: str,
         user_id: int,
         tenant_id: int,
+        user_permissions: dict | None = None,
     ) -> dict:
         """执行数据分析任务
 
@@ -52,6 +53,7 @@ class DataAgent:
                 query=user_input,
                 messages=messages,
                 context=context,
+                user_permissions=user_permissions,
             )
 
             # 2. 更新上下文

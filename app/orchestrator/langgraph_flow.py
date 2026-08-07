@@ -83,7 +83,9 @@ async def classify_intent(state: AgentState) -> dict:
         logger.info(f"前端直达意图: {state['intent']} (输入: {state['user_input'][:50]})")
         return {}
 
-    intent = await planner.classify_intent(state["user_input"], state.get("messages"))
+    intent = await planner.classify_intent(
+        state["user_input"], state.get("messages"), state.get("context"),
+    )
     return {"intent": intent}
 
 
@@ -144,6 +146,7 @@ async def data_node(state: AgentState) -> dict:
     result = await agent.execute(
         user_input, state.get("messages") or [], context,
         state["session_id"], state.get("user_id", 0), state.get("tenant_id", 1),
+        state.get("user_permissions"),
     )
 
     # 查询成功时，把完整结构化结果写入 context（供后续追问复用）
@@ -194,7 +197,11 @@ async def write_node(state: AgentState) -> dict:
 
 
 async def conversation_node(state: AgentState) -> dict:
-    """对话/闲聊/记忆节点（LLM 生成）"""
+    """对话/闲聊/记忆节点（LLM 生成）
+
+    上下文感知：即使意图分类误判为 chat，本节点也会参考上一轮查询结果，
+    避免"刚查到数据，追问却完全失忆"的情况。
+    """
     user_input = state["user_input"]
     messages = state.get("messages") or []
     recent = messages[-20:] if len(messages) > 20 else messages
@@ -202,21 +209,34 @@ async def conversation_node(state: AgentState) -> dict:
         f"{'用户' if m['role'] == 'user' else 'AI'}: {m['content'][:500]}"
         for m in recent
     ])
+
+    # 构建上一轮数据查询上下文（如果存在）
+    context = state.get("context") or {}
+    last_result = context.get("last_result")
+    data_context_text = ""
+    if last_result and isinstance(last_result, dict):
+        last_query = context.get("last_query", "")
+        data = last_result.get("data") or []
+        sql = last_result.get("sql", "")
+        data_context_text = f"\n## 上一轮数据查询上下文\n- 上一轮问题: {last_query}\n- SQL: {sql}\n- 结果({len(data)}条): {str(data[:5])[:1000]}"
+
     from app.agent.llm_client import llm_client
     prompt = f"""你是一个企业 AI 助手，具有对话记忆能力。根据对话历史回答用户问题。
 
 ## 对话历史
 {history_text if history_text else "（无历史对话）"}
+{data_context_text}
 
 ## 用户问题
 {user_input}
 
 ## 回答要求
-- 如果用户询问之前的对话内容，根据上面的历史回答
+- 如果对话历史中有查询结果数据，优先根据那些数据回答用户的追问
+- 如果用户质疑数据结果（如"只有这些？""什么意思？"），根据实际数据解释
 - 如果历史中没有相关信息，诚实回答"不记得"
 - 如果是闲聊/问候，友好自然地回应
 - 简洁回答，不要过度展开
-- 如果用户想查询数据，引导用户提出具体的查询需求"""
+- 如果用户想查询数据但本节点无法处理，建议具体查询方式"""
     response = await llm_client.chat(prompt)
     return {
         "result": {"status": "ok", "data": None, "sql": None, "message": response.strip()},

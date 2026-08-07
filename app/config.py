@@ -22,10 +22,16 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com"
     llm_max_tokens: int = 4096
     llm_temperature: float = 0.1
+    llm_timeout: int = 120  # LLM API 调用超时（秒）
 
     # 配置中心敏感字段加密密钥（Fernet，urlsafe-base64 32字节）
     # 来源：env AI_CONFIG_SECRET；未配置时启动自动生成并持久化到 Redis
     ai_config_secret: str = ""
+
+    # JWT 认证密钥（HMAC-SHA256）
+    # 来源：env JWT_SECRET_KEY；未配置时启动自动生成（仅开发环境）
+    jwt_secret_key: str = ""
+    jwt_expire_hours: int = 24
 
     # 数据库配置（从环境变量读取，不硬编码）
     db_host: str = "localhost"

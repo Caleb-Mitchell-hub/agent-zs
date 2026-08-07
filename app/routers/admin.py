@@ -167,7 +167,7 @@ async def admin_index():
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': 'Bearer test-token-1234567890'
+                            'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
                         },
                         body: JSON.stringify({ workflow_id: id })
                     });

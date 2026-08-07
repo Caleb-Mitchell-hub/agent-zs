@@ -124,6 +124,8 @@ NL_TO_SQL_PROMPT = """你是一个 SQL 专家。根据用户的自然语言问�
 ## 上一轮查询参考（理解"X呢？"等追问的模板：沿用相同查询结构，替换条件值）
 {context_hint}
 
+{permission_block}
+
 ## 用户问题（结合上面的对话历史和查询参考理解）
 {question}
 
@@ -163,8 +165,16 @@ class DatabaseTool:
     def __init__(self):
         self._schema_cache = None
 
-    async def execute(self, query: str, messages: list[dict], context: dict) -> dict:
-        """执行自然语言查询，SQL 错误时自动修正重试"""
+    async def execute(self, query: str, messages: list[dict], context: dict,
+                      user_permissions: dict | None = None) -> dict:
+        """执行自然语言查询，SQL 错误时自动修正重试
+
+        Args:
+            query: 用户自然语言问题
+            messages: 对话历史
+            context: 会话上下文
+            user_permissions: 用户数据权限范围（warehouse_ids/region_ids/customer_ids/product_ids）
+        """
         try:
             # 1. 获取 schema
             schema = await self._get_schema()
@@ -175,9 +185,13 @@ class DatabaseTool:
             # 3. 构建上一轮查询参考（帮助 LLM 理解"X呢？"等追问）
             context_hint = self._build_context_hint(context)
 
-            # 4. LLM 生成 SQL
+            # 4. 构建权限约束（行级数据安全）
+            permission_block = self._build_permission_prompt(user_permissions)
+
+            # 5. LLM 生成 SQL
             prompt = NL_TO_SQL_PROMPT.format(
-                schema=schema, history=history, context_hint=context_hint, question=query,
+                schema=schema, history=history, context_hint=context_hint,
+                permission_block=permission_block, question=query,
             )
             llm_response = await llm_client.chat(prompt)
 
@@ -229,7 +243,8 @@ class DatabaseTool:
             return {"status": "error", "data": None, "sql": None, "message": str(e), "error_code": "INVALID_SQL"}
         except Exception as e:
             logger.error(f"查询执行失败: {e}", exc_info=True)
-            return {"status": "error", "data": None, "sql": None, "message": f"查询失败: {str(e)}", "error_code": "QUERY_ERROR"}
+            err_msg = str(e) if str(e) else f"请求超时（{type(e).__name__}），请稍后重试"
+            return {"status": "error", "data": None, "sql": None, "message": f"查询失败: {err_msg}", "error_code": "QUERY_ERROR"}
 
     async def _get_schema(self) -> str:
         if self._schema_cache is None:
@@ -276,6 +291,52 @@ class DatabaseTool:
                      "请沿用上一轮 SQL 的查询结构，只将条件值替换为 X")
 
         return "\n".join(parts)
+
+    def _build_permission_prompt(self, user_permissions: dict | None) -> str:
+        """构建数据权限约束提示，注入 NL→SQL prompt 以确保行级安全。
+
+        当用户有具体权限范围（非空列表）时，要求 LLM 在 SQL 中强制加入过滤条件。
+        admin 用户权限为空（全部 warehouse_ids 为空），不加限制。
+
+        Returns:
+            str: 权限约束提示文本
+        """
+        if not user_permissions:
+            return "（当前用户无数据权限限制，可访问所有数据）"
+
+        warehouse_ids = user_permissions.get("warehouse_ids") or []
+        region_ids = user_permissions.get("region_ids") or []
+        customer_ids = user_permissions.get("customer_ids") or []
+        product_ids = user_permissions.get("product_ids") or []
+
+        constraints = []
+        if warehouse_ids:
+            ids_str = ", ".join(str(w) for w in warehouse_ids)
+            constraints.append(
+                f"- **仓库限制**：该用户只能查询 warehouse_id IN ({ids_str}) 的数据。"
+                f"所有涉及仓库/库存/入库/出库的查询，**必须**在 WHERE 中加上 "
+                f"warehouse_id IN ({ids_str}) 或 w.id IN ({ids_str})。"
+            )
+        if region_ids:
+            ids_str = ", ".join(str(r) for r in region_ids)
+            constraints.append(
+                f"- **区域限制**：该用户只能查询 region_id IN ({ids_str}) 的数据。"
+            )
+        if customer_ids:
+            ids_str = ", ".join(str(c) for c in customer_ids)
+            constraints.append(
+                f"- **客户限制**：该用户只能查询 customer_id IN ({ids_str}) 的数据（销售订单/客户相关表）。"
+            )
+        if product_ids:
+            ids_str = ", ".join(str(p) for p in product_ids)
+            constraints.append(
+                f"- **商品限制**：该用户只能查询 product_id IN ({ids_str}) 的数据（商品相关表）。"
+            )
+
+        if not constraints:
+            return "（当前用户无数据权限限制，可访问所有数据）"
+
+        return "## 当前用户数据权限（**强制执行**，违反将导致越权查询错误）\n" + "\n".join(constraints)
 
     def _build_history(self, messages: list[dict]) -> str:
         """构建对话历史摘要，帮助 LLM 理解上下文"""
