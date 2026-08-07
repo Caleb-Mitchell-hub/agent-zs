@@ -25,5 +25,12 @@ def client():
 
 @pytest.fixture
 def auth_headers():
-    """认证头"""
-    return {'Authorization': 'Bearer test-token-1234567890'}
+    """认证头（签发真实JWT）"""
+    from app.gateway.auth import create_access_token
+    token = create_access_token({
+        "user_id": 1, "tenant_id": 1, "username": "test_user",
+        "real_name": "测试用户", "is_super_admin": True,
+        "roles": ["admin"], "warehouse_ids": [], "region_ids": [],
+        "customer_ids": [], "product_ids": [],
+    })
+    return {'Authorization': f'Bearer {token}'}

@@ -17,8 +17,18 @@ def test_report_without_token_returns_401(client):
     assert response.status_code == 401
 
 
+def test_non_jwt_token_returns_401(client):
+    """旧版非JWT token（如 test-token）返回 401"""
+    response = client.post(
+        '/api/v1/query',
+        json={'question': '测试'},
+        headers={'Authorization': 'Bearer test-token-1234567890'},
+    )
+    assert response.status_code == 401
+
+
 def test_query_with_token_passes_auth(client, auth_headers):
-    """测试有 token 访问通过认证"""
+    """测试有 JWT token 访问通过认证"""
     response = client.post(
         '/api/v1/query',
         json={'question': '测试'},
@@ -29,7 +39,7 @@ def test_query_with_token_passes_auth(client, auth_headers):
 
 
 def test_report_with_token_passes_auth(client, auth_headers):
-    """测试有 token 访问报表通过认证"""
+    """测试有 JWT token 访问报表通过认证"""
     response = client.post(
         '/api/v1/report',
         json={'question': '测试'},
