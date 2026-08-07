@@ -5,13 +5,13 @@
 - 业务规则
 - 常见问题
 
-使用简单的关键词匹配 + LLM 重排序。
+使用关键词匹配 + 确定性分数排序。
 """
 
 import logging
+import re
 from sqlalchemy import text
 from app.db.session import get_session
-from app.agent.llm_client import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +87,13 @@ async def search_knowledge(query: str, top_k: int = 5, category: str = None) -> 
                     "score": float(row["relevance_score"]) if row["relevance_score"] else 0,
                 })
 
-            # 如果有结果，使用 LLM 重排序
+            # 如果有结果，使用确定性分数排序
             if chunks and len(chunks) > 1:
-                chunks = await _rerank_with_llm(query, chunks)
+                chunks = sorted(
+                    chunks,
+                    key=lambda c: _score_chunk(query, c),
+                    reverse=True,
+                )[:top_k]
 
             logger.info(f"RAG 检索: query='{query}', results={len(chunks)}")
 
@@ -100,42 +104,24 @@ async def search_knowledge(query: str, top_k: int = 5, category: str = None) -> 
         return RAGResult(chunks=[], query=query)
 
 
-async def _rerank_with_llm(query: str, chunks: list[dict]) -> list[dict]:
-    """使用 LLM 对检索结果重排序"""
-    try:
-        # 构建重排序 prompt
-        chunks_text = "\n".join([
-            f"{i+1}. [{c['category']}] {c['title']}: {c['content'][:100]}..."
-            for i, c in enumerate(chunks)
-        ])
+def _split_keywords(query: str) -> list[str]:
+    """将查询切分为关键词列表：按空格/逗号切分，并额外加入整个查询。"""
+    keywords = [kw for kw in re.split(r"[,，\s]+", query) if kw]
+    if query and query not in keywords:
+        keywords.append(query)
+    return keywords
 
-        prompt = f"""根据用户查询，对以下知识条目按相关性排序。
 
-用户查询: {query}
+def _score_chunk(query: str, chunk: dict) -> float:
+    """确定性相关性评分：relevance_score * 0.5 + 关键词重合度。
 
-知识条目:
-{chunks_text}
-
-请返回排序后的编号（用逗号分隔），例如: 2,1,3,5,4
-只返回编号，不要解释。"""
-
-        response = await llm_client.chat(prompt)
-
-        # 解析排序结果
-        try:
-            order = [int(x.strip()) - 1 for x in response.split(",")]
-            # 按新顺序重排
-            reordered = []
-            for idx in order:
-                if 0 <= idx < len(chunks):
-                    reordered.append(chunks[idx])
-            return reordered if reordered else chunks
-        except:
-            return chunks
-
-    except Exception as e:
-        logger.warning(f"LLM 重排序失败: {e}")
-        return chunks
+    关键词重合度 = 查询关键词中出现在 chunk 标题或内容里的个数。
+    """
+    keywords = _split_keywords(query)
+    title = chunk.get("title") or ""
+    content = chunk.get("content") or ""
+    overlap = sum(1 for kw in keywords if kw in title or kw in content)
+    return float(chunk.get("score", 0)) * 0.5 + float(overlap)
 
 
 async def add_knowledge(

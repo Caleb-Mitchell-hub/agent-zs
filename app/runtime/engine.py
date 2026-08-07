@@ -7,6 +7,7 @@
 - 记录执行日志
 """
 
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -166,45 +167,87 @@ class RuntimeEngine:
             dict: 执行结果
         """
         try:
-            # 更新任务状态为 planning
-            await self._update_task_status(task_id, TaskStatus.PLANNING)
+            # 首次执行 PENDING -> PLANNING -> RUNNING；人工确认后恢复 WAITING_CONFIRM -> RUNNING
+            async for session in get_session():
+                result = await session.execute(
+                    text("SELECT status FROM tasks WHERE task_id = :task_id"),
+                    {"task_id": task_id},
+                )
+                row = result.fetchone()
+
+            if not row:
+                return {"status": "error", "message": f"任务不存在: {task_id}"}
+
+            current_status = TaskStatus(row[0])
+            if current_status == TaskStatus.PENDING:
+                await self._update_task_status(task_id, TaskStatus.PLANNING)
+                await self._update_task_status(task_id, TaskStatus.RUNNING)
+            elif current_status == TaskStatus.WAITING_CONFIRM:
+                await self._update_task_status(task_id, TaskStatus.RUNNING)
+            elif current_status not in (TaskStatus.PLANNING, TaskStatus.RUNNING):
+                return {"status": "error", "message": f"任务状态 {current_status.value} 不允许执行"}
 
             # 获取任务步骤
             steps = await self._get_task_steps(task_id)
 
             # 执行步骤
             for step in steps:
+                # 恢复执行时跳过已完成的步骤
+                if step.status == StepStatus.SUCCEEDED:
+                    continue
+
                 # 检查依赖是否完成
                 if not await self._check_dependencies(task_id, step):
                     continue
 
+                # 需要人工确认且尚未执行：执行前挂起，等待外部确认接口
+                if step.need_confirm and step.status == StepStatus.PENDING:
+                    await self._update_step_status(step.step_id, StepStatus.WAITING_CONFIRM)
+                    await self._update_task_status(task_id, TaskStatus.WAITING_CONFIRM)
+                    return {
+                        "status": "waiting_confirm",
+                        "message": f"步骤 {step.step_id} 需要人工确认后方可继续执行",
+                        "task_id": task_id,
+                        "step_id": step.step_id,
+                    }
+
                 # 更新步骤状态为 running
                 await self._update_step_status(step.step_id, StepStatus.RUNNING)
 
-                try:
-                    # 执行工具
-                    handler = self._tool_registry.get(step.tool_name)
-                    if not handler:
-                        raise ValueError(f"工具不存在: {step.tool_name}")
+                # 执行工具，失败按 retry_count 重试
+                handler = self._tool_registry.get(step.tool_name)
+                if handler is None:
+                    last_error = f"工具不存在: {step.tool_name}"
+                    logger.error(f"步骤执行失败: {step.step_id}, {last_error}")
+                else:
+                    last_error = None
+                    for attempt in range(step.retry_count + 1):
+                        try:
+                            result = await handler(**step.input_params)
 
-                    result = await handler(**step.input_params)
+                            # 更新步骤状态为 succeeded
+                            await self._update_step_status(
+                                step.step_id,
+                                StepStatus.SUCCEEDED,
+                                output_result=result,
+                            )
+                            break
+                        except Exception as e:
+                            last_error = str(e)
+                            logger.error(
+                                f"步骤执行失败: {step.step_id}, 第 {attempt + 1} 次尝试, {e}",
+                                exc_info=True,
+                            )
 
-                    # 更新步骤状态为 succeeded
-                    await self._update_step_status(
-                        step.step_id,
-                        StepStatus.SUCCEEDED,
-                        output_result=result,
-                    )
-
-                except Exception as e:
-                    logger.error(f"步骤执行失败: {step.step_id}, {e}", exc_info=True)
+                # 重试耗尽仍失败，标记失败
+                if last_error is not None:
                     await self._update_step_status(
                         step.step_id,
                         StepStatus.FAILED,
-                        last_error=str(e),
+                        last_error=last_error,
                     )
                     await self._update_task_status(task_id, TaskStatus.FAILED)
-                    return {"status": "error", "message": str(e)}
+                    return {"status": "error", "message": last_error}
 
             # 更新任务状态为 succeeded
             await self._update_task_status(task_id, TaskStatus.SUCCEEDED)
@@ -213,8 +256,58 @@ class RuntimeEngine:
 
         except Exception as e:
             logger.error(f"任务执行失败: {e}", exc_info=True)
-            await self._update_task_status(task_id, TaskStatus.FAILED)
+            try:
+                await self._update_task_status(task_id, TaskStatus.FAILED)
+            except Exception:
+                logger.warning(f"更新任务状态为 FAILED 失败: {task_id}", exc_info=True)
             return {"status": "error", "message": str(e)}
+
+    async def confirm_step(self, task_id: str, step_id: str, confirmed_user: str) -> dict:
+        """人工确认步骤后继续执行
+
+        Args:
+            task_id: 任务ID
+            step_id: 步骤ID
+            confirmed_user: 确认人ID
+
+        Returns:
+            dict: 继续执行结果
+        """
+        async for session in get_session():
+            result = await session.execute(
+                text("SELECT task_id, status FROM task_steps WHERE step_id = :step_id"),
+                {"step_id": step_id},
+            )
+            row = result.fetchone()
+
+            if not row:
+                return {"status": "error", "message": f"步骤不存在: {step_id}"}
+
+            if row[0] != task_id:
+                return {"status": "error", "message": f"步骤 {step_id} 不属于任务 {task_id}"}
+
+            if row[1] != StepStatus.WAITING_CONFIRM.value:
+                return {"status": "error", "message": f"步骤 {step_id} 不在等待确认状态"}
+
+            await session.execute(
+                text("""
+                    UPDATE task_steps
+                    SET status = :status, confirmed_by = :confirmed_by,
+                        confirmed_at = :confirmed_at, updated_at = :updated_at
+                    WHERE step_id = :step_id
+                """),
+                {
+                    "status": StepStatus.RUNNING.value,
+                    "confirmed_by": confirmed_user,
+                    "confirmed_at": datetime.now(),
+                    "updated_at": datetime.now(),
+                    "step_id": step_id,
+                },
+            )
+            await session.commit()
+
+        logger.info(f"步骤 {step_id} 已由 {confirmed_user} 确认，继续执行任务 {task_id}")
+        return await self.execute_task(task_id)
 
     async def _check_dependencies(self, task_id: str, step: Step) -> bool:
         """检查步骤依赖是否完成"""
@@ -233,15 +326,39 @@ class RuntimeEngine:
 
             return True
 
-    async def _update_task_status(self, task_id: str, status: TaskStatus):
-        """更新任务状态"""
+    async def _update_task_status(self, task_id: str, new_status: TaskStatus):
+        """更新任务状态（校验状态流转合法性）
+
+        Args:
+            task_id: 任务ID
+            new_status: 目标状态
+
+        Raises:
+            ValueError: 任务不存在或状态流转非法
+        """
         async for session in get_session():
+            result = await session.execute(
+                text("SELECT status FROM tasks WHERE task_id = :task_id"),
+                {"task_id": task_id},
+            )
+            row = result.fetchone()
+
+            if not row:
+                raise ValueError(f"任务不存在: {task_id}")
+
+            current_status = TaskStatus(row[0])
+
+            if new_status not in VALID_TRANSITIONS.get(current_status, []):
+                raise ValueError(
+                    f"非法状态流转: {current_status.value} -> {new_status.value}"
+                )
+
             await session.execute(
                 text("""
                     UPDATE tasks SET status = :status, updated_at = :updated_at
                     WHERE task_id = :task_id
                 """),
-                {"status": status.value, "updated_at": datetime.now(), "task_id": task_id},
+                {"status": new_status.value, "updated_at": datetime.now(), "task_id": task_id},
             )
             await session.commit()
 
@@ -304,6 +421,7 @@ class RuntimeEngine:
                     need_confirm=row.get("need_confirm", False),
                 )
                 step.status = StepStatus(row["status"])
+                step.retry_count = row.get("retry_count", 0)
                 steps.append(step)
 
             return steps
@@ -337,8 +455,6 @@ class RuntimeEngine:
                 "updated_at": str(row["updated_at"]),
             }
 
-
-import json
 
 # 全局实例
 runtime = RuntimeEngine()

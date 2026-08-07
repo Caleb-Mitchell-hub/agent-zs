@@ -59,10 +59,10 @@ async def index():
         </div>
         <div class="container">
             <div class="quick-actions">
-                <button class="quick-btn" onclick="ask('查询所有仓库的库存')">查询库存</button>
-                <button class="quick-btn" onclick="ask('统计本月销售额')">本月销售</button>
-                <button class="quick-btn" onclick="ask('采购订单审批流程')">审批流程</button>
-                <button class="quick-btn" onclick="ask('创建采购订单')">创建订单</button>
+                <button class="quick-btn" onclick="ask('查询所有仓库的库存', 'query')">查询库存</button>
+                <button class="quick-btn" onclick="ask('统计本月销售额', 'query')">本月销售</button>
+                <button class="quick-btn" onclick="ask('采购订单审批流程', 'knowledge')">审批流程</button>
+                <button class="quick-btn" onclick="ask('创建采购订单', 'create')">创建订单</button>
             </div>
             <div class="chat-box" id="chatBox"></div>
             <div class="typing" id="typing">AI 正在思考...</div>
@@ -73,6 +73,8 @@ async def index():
         </div>
         <script>
             const API = '/api/v1/query';
+            // 页面加载时生成唯一会话ID，同一窗口内共享记忆
+            const sessionId = 'web-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
             const chatBox = document.getElementById('chatBox');
             const input = document.getElementById('input');
             const typing = document.getElementById('typing');
@@ -113,14 +115,18 @@ async def index():
                 return html;
             }
 
-            async function ask(question) {
+            async function ask(question, intent) {
                 input.value = question;
+                window._quickIntent = intent || '';
                 send();
             }
 
             async function send() {
                 const q = input.value.trim();
                 if (!q) return;
+
+                const intent = window._quickIntent || '';
+                window._quickIntent = '';
 
                 addMessage('user', q);
                 input.value = '';
@@ -132,7 +138,7 @@ async def index():
                     const res = await fetch(API, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
-                        body: JSON.stringify({ question: q })
+                        body: JSON.stringify({ question: q, session_id: sessionId, intent: intent })
                     });
                     const data = await res.json();
                     addMessage('assistant', formatResult(data));

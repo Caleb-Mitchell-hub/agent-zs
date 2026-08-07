@@ -6,6 +6,42 @@
 from sqlalchemy import text
 from app.db.session import get_session
 
+# 模块级缓存：只查库一次
+_schema_structure_cache: dict[str, set[str]] | None = None
+
+
+async def get_schema_structure() -> dict[str, set[str]]:
+    """获取 {表名: {列名集合}}，用于执行前校验 SQL 列名。
+
+    过滤系统表（ACT_/act_/FLW_/flw_ 前缀）和 custom_* 扩展列。
+    模块级缓存，只查询一次。
+    """
+    global _schema_structure_cache
+    if _schema_structure_cache is not None:
+        return _schema_structure_cache
+
+    structure: dict[str, set[str]] = {}
+    async for session in get_session():
+        result = await session.execute(
+            text(
+                """
+                SELECT TABLE_NAME, COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                """
+            )
+        )
+        for row in result.fetchall():
+            table, column = row[0], row[1]
+            if table.startswith(('ACT_', 'act_', 'FLW_', 'flw_')):
+                continue
+            if column.startswith('custom_'):
+                continue
+            structure.setdefault(table, set()).add(column)
+
+    _schema_structure_cache = structure
+    return structure
+
 
 async def get_table_list() -> list[str]:
     """获取所有表名"""

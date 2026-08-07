@@ -39,6 +39,7 @@ async def natural_language_query(
         session_id=session_id,
         user_id=user_info["user_id"],
         tenant_id=user_info.get("tenant_id", 1),
+        intent=req.intent,
     )
 
     return QueryResponse(**result)

@@ -7,6 +7,7 @@
 """
 
 import logging
+import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -120,18 +121,27 @@ class ReportTemplateEngine:
         return None
 
     def generate_sql(self, template: dict, params: dict) -> str:
-        """根据模板生成 SQL
+        """根据模板生成 SQL（对日期参数做安全校验，防 SQL 注入）
 
         Args:
             template: 报表模板
-            params: 参数
+            params: 参数（如 start_date/end_date）
 
         Returns:
             str: 生成的 SQL
+
+        Raises:
+            ValueError: 日期参数格式非法（非 YYYY-MM-DD）
         """
+        # 日期参数安全校验：只允许 YYYY-MM-DD 格式，非法则拒绝，防止注入
+        for key, value in params.items():
+            if key in ("start_date", "end_date"):
+                if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+                    raise ValueError(f"日期参数 {key} 格式非法，只允许 YYYY-MM-DD 格式: {value!r}")
+
         sql = template["sql_template"]
 
-        # 替换参数
+        # 替换参数（值已经过安全校验）
         for key, value in params.items():
             sql = sql.replace(f"{{{key}}}", str(value))
 

@@ -12,6 +12,7 @@ class QueryRequest(BaseModel):
     session_id: str | None = None
     user_id: int | None = None
     tenant_id: int | None = None
+    intent: str | None = None  # 前端快捷入口直达意图（query/create/...），跳过分类
 
 
 class QueryResponse(BaseModel):
