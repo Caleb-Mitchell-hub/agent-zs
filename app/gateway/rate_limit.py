@@ -19,12 +19,43 @@ class RateLimiter:
 
     def __init__(self):
         self._requests: dict[str, list[float]] = defaultdict(list)
-        # 默认配置
+        # 默认配置（可被配置中心覆盖）
         self.configs = {
             "default": {"max_requests": 60, "window_seconds": 60},
             "user": {"max_requests": 120, "window_seconds": 60},
             "tenant": {"max_requests": 1000, "window_seconds": 60},
         }
+
+    async def load_from_config(self):
+        """从配置中心加载限流档位（启动时 + 配置变更后调用）
+
+        default 档来自 app_config 的 rate_limit.default；
+        user/tenant 档可被 rate_limit_config 表命中覆盖（scope_type 匹配）。
+        """
+        try:
+            from app.config_center.service import config_service
+
+            default_cfg = await config_service.get_config("rate_limit.default", {})
+            if default_cfg and isinstance(default_cfg, dict):
+                self.configs["default"] = {
+                    "max_requests": int(default_cfg.get("max_requests", 60)),
+                    "window_seconds": int(default_cfg.get("window_seconds", 60)),
+                }
+
+            limits = await config_service.list_rate_limits()
+            for item in limits:
+                if not item.get("enabled", True):
+                    continue
+                scope_type = item.get("scope_type")
+                if scope_type not in ("user", "tenant", "department"):
+                    continue
+                self.configs[scope_type] = {
+                    "max_requests": int(item.get("qps", 10)),
+                    "window_seconds": 60,
+                }
+            logger.info(f"限流配置已从配置中心加载: {self.configs}")
+        except Exception as e:
+            logger.warning(f"加载限流配置失败，使用默认值: {e}")
 
     def is_allowed(self, key: str, config_type: str = "default") -> tuple[bool, int]:
         """检查是否允许

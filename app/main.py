@@ -11,11 +11,15 @@ from fastapi import FastAPI
 from app.config import settings
 from app.logging_config import setup_logging
 from app.middleware import RequestLoggingMiddleware, ExceptionHandlerMiddleware
-from app.routers import health, query, report, write, rag, admin, workflow, frontend
+from app.routers import health, query, report, write, rag, admin, workflow, frontend, admin_config
+from app.tools.registry import ToolExecutor
 
 # 配置日志
 setup_logging(debug=settings.debug)
 logger = logging.getLogger(__name__)
+
+# 工具执行器：统一强制执行超时/重试/二次确认（后续接线使用）
+tool_executor = ToolExecutor()
 
 
 @asynccontextmanager
@@ -37,14 +41,25 @@ async def lifespan(app: FastAPI):
     from app.tools.registry import tool_registry
     from app.tools.database_tool import DatabaseTool
     from app.tools.search_tool import SearchTool
+    from app.tools.time_tool import TimeTool
     from app.tools.report_templates import report_template_engine
 
     db_tool = DatabaseTool()
     search_tool = SearchTool()
+    time_tool = TimeTool()
 
-    tool_registry.register("query_tool", db_tool.execute, "查询数据库", permission_level="medium")
-    tool_registry.register("knowledge_tool", search_tool.execute, "知识检索", permission_level="low")
+    tool_registry.register("query_tool", db_tool.execute, "查询数据库", permission_level="medium", risk_level="medium")
+    tool_registry.register("knowledge_tool", search_tool.execute, "知识检索", permission_level="low", risk_level="low")
+    tool_registry.register("time_tool", time_tool.execute, "实时时间查询", permission_level="low", risk_level="low")
     logger.info(f"工具注册完成: {len(tool_registry.list_tools())} 个工具")
+
+    # 应用工具策略（从配置中心加载）
+    from app.config_center.service import config_service
+    await config_service.apply_tool_policies(tool_registry)
+
+    # 加载限流配置
+    from app.gateway.rate_limit import rate_limiter
+    await rate_limiter.load_from_config()
 
     # 启动 Task Worker
     from app.worker.task_worker import task_worker
@@ -86,4 +101,5 @@ app.include_router(report.router, prefix="/api/v1", tags=["报表"])
 app.include_router(write.router, prefix="/api/v1", tags=["单据"])
 app.include_router(rag.router, prefix="/api/v1", tags=["知识检索"])
 app.include_router(admin.router, prefix="/api/v1", tags=["管理"])
+app.include_router(admin_config.router, prefix="/api/v1", tags=["配置中心"])
 app.include_router(workflow.router, prefix="/api/v1", tags=["工作流"])

@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     llm_temperature: float = 0.1
 
+    # 配置中心敏感字段加密密钥（Fernet，urlsafe-base64 32字节）
+    # 来源：env AI_CONFIG_SECRET；未配置时启动自动生成并持久化到 Redis
+    ai_config_secret: str = ""
+
     # 数据库配置（从环境变量读取，不硬编码）
     db_host: str = "localhost"
     db_port: int = 3306
@@ -46,6 +50,9 @@ class Settings(BaseSettings):
     # 查询沙箱配置
     sql_statement_timeout: int = 10  # 秒
     sql_max_rows: int = 1000
+
+    # 摘要生成配置
+    llm_enable_summary: bool = False  # 是否用 LLM 生成查询结果摘要（默认模板）
 
     # 服务配置
     host: str = "0.0.0.0"
