@@ -8,9 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 
 WORKDIR /app
 
-# 安装依赖
+# 安装依赖（用镜像源加速 + 加大超时重试，避免大包下载超时）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt \
+    || pip install --no-cache-dir --timeout 300 --retries 5 -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 
 # 复制应用代码
 COPY app/ ./app/
