@@ -28,6 +28,14 @@ scp app/memory/extractor.py root@172.177.3.43:/opt/agent-zs/app/memory/extractor
 scp app/runtime/engine.py root@172.177.3.43:/opt/agent-zs/app/runtime/engine.py
 scp app/main.py root@172.177.3.43:/opt/agent-zs/app/main.py
 scp app/config.py root@172.177.3.43:/opt/agent-zs/app/config.py
+scp app/security/auth_service.py root@172.177.3.43:/opt/agent-zs/app/security/auth_service.py
+scp app/routers/auth.py root@172.177.3.43:/opt/agent-zs/app/routers/auth.py
+scp app/routers/admin.py root@172.177.3.43:/opt/agent-zs/app/routers/admin.py
+scp app/agents/data_agent.py root@172.177.3.43:/opt/agent-zs/app/agents/data_agent.py
+scp app/agents/knowledge_agent.py root@172.177.3.43:/opt/agent-zs/app/agents/knowledge_agent.py
+scp app/gateway/auth.py root@172.177.3.43:/opt/agent-zs/app/gateway/auth.py
+scp app/gateway/rate_limit.py root@172.177.3.43:/opt/agent-zs/app/gateway/rate_limit.py
+scp app/agent/llm_client.py root@172.177.3.43:/opt/agent-zs/app/agent/llm_client.py
 
 echo [1.5/3] 上传配置中心 SQL 脚本并初始化数据库...
 scp scripts/init_config_center.sql root@172.177.3.43:/opt/agent-zs/scripts/init_config_center.sql
