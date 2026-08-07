@@ -121,7 +121,10 @@ NL_TO_SQL_PROMPT = """你是一个 SQL 专家。根据用户的自然语言问�
 ## 对话历史（最近几轮问答，用于理解代词和省略）
 {history}
 
-## 用户问题（结合上面的对话历史理解）
+## 上一轮查询参考（理解"X呢？"等追问的模板：沿用相同查询结构，替换条件值）
+{context_hint}
+
+## 用户问题（结合上面的对话历史和查询参考理解）
 {question}
 
 ## 严格要求（必须遵守）
@@ -169,8 +172,13 @@ class DatabaseTool:
             # 2. 构建对话历史
             history = self._build_history(messages)
 
-            # 3. LLM 生成 SQL
-            prompt = NL_TO_SQL_PROMPT.format(schema=schema, history=history, question=query)
+            # 3. 构建上一轮查询参考（帮助 LLM 理解"X呢？"等追问）
+            context_hint = self._build_context_hint(context)
+
+            # 4. LLM 生成 SQL
+            prompt = NL_TO_SQL_PROMPT.format(
+                schema=schema, history=history, context_hint=context_hint, question=query,
+            )
             llm_response = await llm_client.chat(prompt)
 
             # 4. 提取 SQL
@@ -228,6 +236,47 @@ class DatabaseTool:
             self._schema_cache = await get_summary_ddl()
         return self._schema_cache
 
+    def _build_context_hint(self, context: dict) -> str:
+        """构建上一轮查询参考，帮助 LLM 理解"X呢？"等追问模式。
+
+        提供上一轮查询的完整上下文（用户问题 + 执行的 SQL + 结果摘要），
+        让 LLM 看到追问时能沿用相同的查询结构，只需替换条件值。
+        """
+        last_query = context.get("last_query")
+        last_sql = context.get("last_sql")
+        last_result = context.get("last_result")
+
+        if not last_query:
+            return "（这是第一轮对话，无上一轮查询参考）"
+
+        parts = [f"- 上一轮用户问题: {last_query}"]
+
+        if last_sql:
+            parts.append(f"- 上一轮执行的 SQL: {last_sql}")
+        elif last_result and isinstance(last_result, dict):
+            # fallback: last_result 内部也可能携带 sql
+            inner_sql = last_result.get("sql")
+            if inner_sql:
+                parts.append(f"- 上一轮执行的 SQL: {inner_sql}")
+
+        if last_result and isinstance(last_result, dict):
+            count = last_result.get("count", 0)
+            data = last_result.get("data")
+            if data and isinstance(data, list) and len(data) > 0:
+                sample = data[0]
+                if isinstance(sample, dict):
+                    fields = "、".join(list(sample.keys())[:5])
+                    parts.append(f"- 上一轮结果: {count} 条，字段包括: {fields}")
+                else:
+                    parts.append(f"- 上一轮结果: {count} 条")
+            else:
+                parts.append(f"- 上一轮结果: {count} 条")
+
+        parts.append("- 重要: 如果当前用户输入是\"X呢？\"形式的追问，" \
+                     "请沿用上一轮 SQL 的查询结构，只将条件值替换为 X")
+
+        return "\n".join(parts)
+
     def _build_history(self, messages: list[dict]) -> str:
         """构建对话历史摘要，帮助 LLM 理解上下文"""
         if not messages:
@@ -235,7 +284,12 @@ class DatabaseTool:
         history_lines = []
         # 取最近 6 轮对话（12条消息）
         for msg in messages[-12:]:
-            role = "用户" if msg['role'] == 'user' else "系统"
+            if msg['role'] == 'user':
+                role = "用户"
+            elif msg['role'] == 'assistant':
+                role = "AI助手"
+            else:
+                role = "系统"
             # 保留完整内容，不做截断（上下文对理解省略/代词至关重要）
             history_lines.append(f"{role}: {msg['content']}")
         return "\n".join(history_lines)
