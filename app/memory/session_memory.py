@@ -68,14 +68,16 @@ async def get_session(session_id: str) -> dict:
     }
 
 
-async def save_session(session_id: str, session_data: dict, ttl: int = 3600):
+async def save_session(session_id: str, session_data: dict, ttl: int = None):
     """保存会话数据
 
     Args:
         session_id: 会话 ID
         session_data: 会话数据
-        ttl: 过期时间（秒），默认 1 小时
+        ttl: 过期时间（秒），默认使用 settings.session_ttl
     """
+    if ttl is None:
+        ttl = settings.session_ttl
     r = _get_redis()
     await r.setex(
         f"session:{session_id}",
@@ -97,9 +99,10 @@ async def add_message(session_id: str, role: str, content: str):
         "role": role,
         "content": content,
     })
-    # 保留最近 20 条消息
-    if len(session["messages"]) > 20:
-        session["messages"] = session["messages"][-20:]
+    # 保留最近 N 条消息（可配置）
+    max_messages = settings.session_max_messages
+    if len(session["messages"]) > max_messages:
+        session["messages"] = session["messages"][-max_messages:]
     await save_session(session_id, session)
 
 

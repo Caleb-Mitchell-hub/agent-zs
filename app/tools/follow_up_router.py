@@ -35,10 +35,17 @@ REFER_BACK_MARKERS = [
 ]
 
 # 纯查询修饰词（只看结果，不换条件）
-# 注意：不含"所有/全部"——它们常出现在全新查询里，不应触发复用
 LOOKUP_MODIFIERS = [
     "多少", "数量", "总共有", "总共", "一共", "还有",
     "分别是", "分别", "统计", "汇总", "合计", "看看",
+]
+
+# 全新查询指示词：出现这些词表示用户发起了一个新的查询请求，而非追问上次结果
+# 注意：这些词与 REFER_BACK_MARKERS 互斥 —— 前者是"新的"，后者是"引用旧的"
+NEW_QUERY_SIGNALS = [
+    "查询", "查一下", "查查", "帮我查", "搜索",
+    "所有", "全部", "列出", "显示", "看看",
+    "有没有", "有哪些", "在哪", "什么时候",
 ]
 
 
@@ -46,7 +53,7 @@ def is_follow_up(user_input: str, context: dict) -> bool:
     """判断当前输入是否为追问（依赖上次查询结果）
 
     判定标准：
-    - 会话 context 里有上次查询结果 last_result
+    - 会话 context 里有上次查询结果 last_result，且结果非空
     - 当前输入是短句、省略句或含代词
 
     Args:
@@ -56,11 +63,28 @@ def is_follow_up(user_input: str, context: dict) -> bool:
     Returns:
         bool: 是否为追问
     """
-    if not context.get("last_result"):
+    last_result = context.get("last_result")
+    if not last_result:
         return False
 
-    # 追问通常是短句（< 20字），或含引用词
-    if len(user_input) <= 20:
+    # 上次查询结果为空 → 不存在可复用的数据，直接走重新查询
+    if isinstance(last_result, dict):
+        data = last_result.get("data")
+        if not data or (isinstance(data, list) and len(data) == 0):
+            return False
+
+    # 明确创建/写操作信号 → 不是追问
+    create_signals = ["新增", "创建", "新建", "下单", "开单", "建单"]
+    if any(s in user_input for s in create_signals):
+        return False
+
+    # 全新查询指示词 → 用户发起了一个新查询，不是追问
+    if any(signal in user_input for signal in NEW_QUERY_SIGNALS):
+        return False
+
+    # 追问通常是短句（≤12字），或含引用词
+    # 阈值从 20 降到 12：太长大概率是新查询而非追问
+    if len(user_input) <= 12:
         return True
 
     # 包含引用上次查询的词
@@ -97,7 +121,7 @@ def should_reuse_result(user_input: str, context: dict) -> bool:
         return True
 
     # 默认：只有明确引用上次且无新条件的短句才复用
-    return len(user_input) <= 8
+    return len(user_input) <= 6
 
 
 def compose_reuse_reply(user_input: str, context: dict) -> dict:
@@ -114,12 +138,12 @@ def compose_reuse_reply(user_input: str, context: dict) -> dict:
     rows = last_result.get("data") or []
     last_query = context.get("last_query", "")
 
+    # 防御：should_reuse_result 已保证数据非空，此处兜底
     if not rows:
         return {
-            "status": "ok",
-            "data": [],
-            "message": "上次查询结果为空",
-            "reused": True,
+            "status": "error",
+            "message": "无法复用上次查询结果，请重新描述您的查询需求",
+            "reused": False,
         }
 
     # 简单汇总：展示上次查询的全部结果

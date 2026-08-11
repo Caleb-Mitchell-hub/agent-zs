@@ -124,6 +124,8 @@ NL_TO_SQL_PROMPT = """你是一个 SQL 专家。根据用户的自然语言问�
 ## 上一轮查询参考（理解"X呢？"等追问的模板：沿用相同查询结构，替换条件值）
 {context_hint}
 
+{user_memory}
+
 {permission_block}
 
 ## 用户问题（结合上面的对话历史和查询参考理解）
@@ -166,7 +168,7 @@ class DatabaseTool:
         self._schema_cache = None
 
     async def execute(self, query: str, messages: list[dict], context: dict,
-                      user_permissions: dict | None = None) -> dict:
+                      user_permissions: dict | None = None, user_id: int = 0) -> dict:
         """执行自然语言查询，SQL 错误时自动修正重试
 
         Args:
@@ -174,6 +176,7 @@ class DatabaseTool:
             messages: 对话历史
             context: 会话上下文
             user_permissions: 用户数据权限范围（warehouse_ids/region_ids/customer_ids/product_ids）
+            user_id: 用户 ID（用于加载长期用户记忆）
         """
         try:
             # 1. 获取 schema
@@ -185,12 +188,16 @@ class DatabaseTool:
             # 3. 构建上一轮查询参考（帮助 LLM 理解"X呢？"等追问）
             context_hint = self._build_context_hint(context)
 
-            # 4. 构建权限约束（行级数据安全）
+            # 4. 构建用户长期记忆（偏好、习惯、常用查询等）
+            user_memory_block = await self._build_user_memory(user_id)
+
+            # 5. 构建权限约束（行级数据安全）
             permission_block = self._build_permission_prompt(user_permissions)
 
-            # 5. LLM 生成 SQL
+            # 6. LLM 生成 SQL
             prompt = NL_TO_SQL_PROMPT.format(
                 schema=schema, history=history, context_hint=context_hint,
+                user_memory=user_memory_block,
                 permission_block=permission_block, question=query,
             )
             llm_response = await llm_client.chat(prompt)
@@ -291,6 +298,49 @@ class DatabaseTool:
                      "请沿用上一轮 SQL 的查询结构，只将条件值替换为 X")
 
         return "\n".join(parts)
+
+    async def _build_user_memory(self, user_id: int) -> str:
+        """构建用户长期记忆上下文，注入 NL→SQL prompt。
+
+        从 MySQL user_preferences 表读取用户的偏好/习惯/常用查询，
+        帮助 LLM 理解用户的个性化表达和默认过滤条件。
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            str: 用户记忆上下文文本
+        """
+        if not user_id:
+            return ""
+
+        try:
+            from app.memory.user_memory import user_memory
+            prefs = await user_memory.get_user_preferences(user_id)
+            if not prefs:
+                return ""
+
+            parts = []
+            # 近期查询（帮助 LLM 理解用户的查询模式）
+            recent = prefs.get("recent_queries") or []
+            if recent:
+                recent_text = "\n".join([
+                    f"  - {r.get('query', '')}" for r in recent[-5:]
+                ])
+                parts.append(f"- 用户最近查询:\n{recent_text}")
+
+            # 默认过滤条件
+            filters = prefs.get("default_filters") or {}
+            if filters:
+                filter_text = ", ".join([f"{k}={v}" for k, v in filters.items()])
+                parts.append(f"- 用户默认过滤: {filter_text}")
+
+            if parts:
+                return "## 用户长期记忆（个性化上下文，理解用户的表达习惯和偏好）\n" + "\n".join(parts)
+
+        except Exception:
+            pass  # 记忆加载失败不阻塞查询
+        return ""
 
     def _build_permission_prompt(self, user_permissions: dict | None) -> str:
         """构建数据权限约束提示，注入 NL→SQL prompt 以确保行级安全。

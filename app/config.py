@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: str = ""
 
+    # 会话配置
+    session_ttl: int = 86400        # 会话过期时间（秒），默认 24 小时
+    session_max_messages: int = 50  # 会话消息保留上限
+
     # Qdrant 向量数据库配置
     qdrant_url: str = "http://172.177.3.43:6333"
     qdrant_collection: str = "knowledge_base"

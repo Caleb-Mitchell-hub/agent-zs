@@ -24,8 +24,11 @@ async def login(body: LoginRequest):
     body: {username, password}
     成功返回 JWT token + 用户信息，失败返回 401。
     """
-    # 验证密码
-    user = await auth_service.authenticate(body.username, body.password)
+    try:
+        user = await auth_service.authenticate(body.username, body.password)
+    except Exception as e:
+        logger.error(f"登录异常 — username={body.username}, error={e}", exc_info=True)
+        return _401(f"认证服务异常: {e}")
     if not user:
         return _401("用户名或密码错误")
 

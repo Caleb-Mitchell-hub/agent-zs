@@ -39,7 +39,7 @@ INTENT_RULES = [
     # 创建单据（只保留明确的创建动词，避免与 report/knowledge/update 冲突）
     ("create", [
         "创建", "新建", "下单", "开单", "建单",
-        "帮我创建", "请帮我创建",
+        "帮我创建", "请帮我创建", "新增",
     ]),
     # 更新状态
     ("update", [
@@ -182,6 +182,26 @@ TASK_PLAN_PROMPT = """你是一个任务规划专家。根据用户目标，规�
 ## JSON"""
 
 
+# create 意图前置正则匹配：处理"新增/新建/创建 + ... + 业务单据"组合
+# 这类输入中"销售""采购""订单"等字眼会命中 query 关键词，导致规则引擎误判为 query
+# 正则确保"新增一个采购订单"等变体也能被正确识别
+# 注意：下单/开单/建单 已在 INTENT_RULES create 关键词中独立处理，此处不重复
+_CREATE_PRE_PATTERNS = [
+    r"新增.*(?:销售|采购|入库|出库|订单|报销|单据|合同)",
+    r"新建.*(?:销售|采购|入库|出库|订单|报销|单据|合同)",
+    r"创建.*(?:销售|采购|入库|出库|订单|报销|单据|合同)",
+]
+
+# 时间表达式在"新增"之前 = 用户在查询某时间段内的新增数据，不是创建
+# 例："4月新增销售订单" → query，"上月新增客户" → query
+_TIME_BEFORE_CREATE = re.compile(
+    r"(?:"
+    r"\d+月|\d+年|本月|上月|下月|本周|上周|下周|"
+    r"今年|去年|今天|昨天|前天|明天|最近|近[半几\d]+[天月年周]"
+    r").{0,4}新增"
+)
+
+
 class Planner:
     """任务规划器"""
 
@@ -202,6 +222,17 @@ class Planner:
         """
         if not user_input or not user_input.strip():
             return None
+
+        # 前置检查：明确创建单据意图（"新增销售订单"/"新增一个采购订单"等）
+        # 必须在关键词打分之前执行，因为"销售""订单"等会命中 query 关键词
+        # 例外：时间表达式在"新增"之前（"4月新增销售订单"）→ query，不是 create
+        if not _TIME_BEFORE_CREATE.search(user_input):
+            for pat in _CREATE_PRE_PATTERNS:
+                if re.search(pat, user_input):
+                    logger.info(f"规则引擎前置匹配 create (pattern={pat}): {user_input[:50]}")
+                    return "create"
+        else:
+            logger.info(f"检测到时间+新增，跳过 create 前置匹配: {user_input[:50]}")
 
         # 计算每个意图的得分：命中关键词长度之和
         scores: dict[str, int] = {}
@@ -264,6 +295,11 @@ class Planner:
         Returns:
             bool: 是否为数据追问
         """
+        # 0. 明确创建/写操作信号 → 不是数据追问
+        create_signals = ["新增", "创建", "新建", "下单", "开单", "建单", "生成.*单"]
+        if any(s in user_input for s in create_signals):
+            return False
+
         last_result = context.get("last_result")
         if not last_result:
             return False
@@ -283,14 +319,33 @@ class Planner:
         if any(pat in user_input for pat in data_question_patterns):
             return True
 
-        # B. 追问结果中出现的具体值（数字、仓库名、字段值等）
-        # 提取上一轮结果中的字符串值，检查是否在用户输入中出现
+        # A2. 修正/细化展示字段型追问（"我要名字不是ID"、"换成商品名"、"显示金额"等）
+        # 用户对上一轮的结果列不满意，要求换字段展示——依然是数据追问，不是新查询
+        refine_display_patterns = [
+            "名字不是", "不要ID", "不是ID", "不要编号", "不是编号",
+            "显示名字", "显示名称", "换成名字", "换成名称",
+            "只要名字", "只要名称", "列出名字", "列出名称",
+            "加上.*字段", "加上.*列", "还要.*字段", "还要.*列",
+        ]
+        if any(pat in user_input for pat in refine_display_patterns):
+            return True
+
+        # B. 追问结果中出现的具体值或列名
+        # B1. 检查值（数字、仓库名等）
         for row in data[:5]:
             if isinstance(row, dict):
                 for val in row.values():
                     val_str = str(val)
                     if len(val_str) >= 2 and val_str in user_input:
                         return True
+                # B2. 检查列名（用户提到上一轮结果中的列名，如"SKU ID"→"SKU"）
+                for col_name in row.keys():
+                    if len(col_name) >= 2 and col_name in user_input:
+                        return True
+                    # 复合列名拆开匹配，如 "SKU ID" → "SKU"
+                    for part in col_name.split():
+                        if len(part) >= 2 and part in user_input:
+                            return True
 
         # C. 极短追问（≤6字）且上一轮是数据查询 → 很可能是对结果的反应
         # 注意：阈值 6 经过仔细权衡，再宽会误判"北京仓库有哪些"这样的新查询
@@ -337,6 +392,7 @@ class Planner:
             return "query"
 
         # 3. 规则引擎无法裁决 → LLM 兜底（带对话上下文）
+        # 3a. 构建对话历史
         history_text = "（无历史对话）"
         if messages:
             recent = messages[-20:]  # 最近20条消息（10轮对话）
@@ -346,8 +402,25 @@ class Planner:
                     for m in recent
                 ])
 
+        # 3b. 构建上一轮数据查询上下文（防止 LLM 不知道刚才查过数据）
+        data_context_text = ""
+        ctx = context or {}
+        last_query = ctx.get("last_query")
+        last_result = ctx.get("last_result")
+        if last_query and last_result and isinstance(last_result, dict):
+            last_data = last_result.get("data") or []
+            last_sql = last_result.get("sql") or ctx.get("last_sql", "")
+            data_context_text = (
+                f"\n\n【重要：上一轮刚执行了数据查询】\n"
+                f"- 查询: {last_query}\n"
+                f"- SQL: {last_sql[:200]}\n"
+                f"- 返回 {len(last_data)} 条，字段: {', '.join(list(last_data[0].keys())[:6]) if last_data else '无'}\n"
+                f"- 如果当前输入是在追问/细化/质疑这个查询结果（如换字段、质疑数据、追问细节），"
+                f"意图应为 query"
+            )
+
         prompt = INTENT_CLASSIFY_PROMPT.format(
-            conversation_history=history_text,
+            conversation_history=history_text + data_context_text,
             user_input=user_input,
         )
         llm_raw = (await llm_client.chat(prompt)).strip().lower()

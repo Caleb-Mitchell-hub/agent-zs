@@ -12,7 +12,9 @@ scp app/routers/frontend.py root@172.177.3.43:/opt/agent-zs/app/routers/frontend
 scp app/routers/query.py root@172.177.3.43:/opt/agent-zs/app/routers/query.py
 scp app/routers/admin_config.py root@172.177.3.43:/opt/agent-zs/app/routers/admin_config.py
 scp app/models/schemas.py root@172.177.3.43:/opt/agent-zs/app/models/schemas.py
+scp app/security/__init__.py root@172.177.3.43:/opt/agent-zs/app/security/__init__.py
 scp app/security/crypto.py root@172.177.3.43:/opt/agent-zs/app/security/crypto.py
+scp app/security/auth_service.py root@172.177.3.43:/opt/agent-zs/app/security/auth_service.py
 scp app/config_center/__init__.py root@172.177.3.43:/opt/agent-zs/app/config_center/__init__.py
 scp app/config_center/cache.py root@172.177.3.43:/opt/agent-zs/app/config_center/cache.py
 scp app/config_center/service.py root@172.177.3.43:/opt/agent-zs/app/config_center/service.py
@@ -28,11 +30,13 @@ scp app/memory/extractor.py root@172.177.3.43:/opt/agent-zs/app/memory/extractor
 scp app/runtime/engine.py root@172.177.3.43:/opt/agent-zs/app/runtime/engine.py
 scp app/main.py root@172.177.3.43:/opt/agent-zs/app/main.py
 scp app/config.py root@172.177.3.43:/opt/agent-zs/app/config.py
-scp app/security/auth_service.py root@172.177.3.43:/opt/agent-zs/app/security/auth_service.py
 scp app/routers/auth.py root@172.177.3.43:/opt/agent-zs/app/routers/auth.py
 scp app/routers/admin.py root@172.177.3.43:/opt/agent-zs/app/routers/admin.py
+scp app/routers/sessions.py root@172.177.3.43:/opt/agent-zs/app/routers/sessions.py
 scp app/agents/data_agent.py root@172.177.3.43:/opt/agent-zs/app/agents/data_agent.py
 scp app/agents/knowledge_agent.py root@172.177.3.43:/opt/agent-zs/app/agents/knowledge_agent.py
+scp app/services/__init__.py root@172.177.3.43:/opt/agent-zs/app/services/__init__.py
+scp app/services/session_service.py root@172.177.3.43:/opt/agent-zs/app/services/session_service.py
 scp app/gateway/auth.py root@172.177.3.43:/opt/agent-zs/app/gateway/auth.py
 scp app/gateway/rate_limit.py root@172.177.3.43:/opt/agent-zs/app/gateway/rate_limit.py
 scp app/agent/llm_client.py root@172.177.3.43:/opt/agent-zs/app/agent/llm_client.py

@@ -54,6 +54,7 @@ class DataAgent:
                 messages=messages,
                 context=context,
                 user_permissions=user_permissions,
+                user_id=user_id,
             )
 
             # 2. 更新上下文

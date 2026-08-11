@@ -50,12 +50,17 @@ DOC_TYPE_FIELDS = {
 
 EXTRACT_PARAMS_PROMPT = """你是一个 ERP 参数提取专家。根据用户输入提取创建单据所需参数。
 
+【对话上下文】
+{context_block}
+
 支持的单据类型：
 - purchase_order: 采购订单
 - sales_order: 销售订单
 - stock_in_order: 入库单
 - stock_out_order: 出库单
 - expense_reimbursement: 报销单
+
+【重要】如果对话上下文中用户刚做完数据查询，当前输入很可能是在追问/细化查询结果，而非创建单据。只有当用户明确表达"创建""新建""开单"等意图时，才提取单据参数。
 
 用户输入: {user_input}
 
@@ -76,8 +81,14 @@ class WriteAgent:
     async def execute(self, user_input: str, messages: list[dict], context: dict,
                       session_id: str, user_id: int, tenant_id: int) -> dict:
         try:
-            # 1. 提取参数
-            prompt = EXTRACT_PARAMS_PROMPT.format(user_input=user_input)
+            # 1. 构建对话上下文
+            context_block = self._build_context_block(messages, context)
+
+            # 2. 提取参数
+            prompt = EXTRACT_PARAMS_PROMPT.format(
+                user_input=user_input,
+                context_block=context_block,
+            )
             response = await llm_client.chat(prompt)
             logger.info(f"LLM 响应: {response}")
 
@@ -194,3 +205,23 @@ class WriteAgent:
         except Exception as e:
             logger.error(f"Write Agent 失败: {e}", exc_info=True)
             return {"status": "error", "message": f"创建失败: {str(e)}"}
+
+    @staticmethod
+    def _build_context_block(messages: list[dict], context: dict) -> str:
+        """构建对话上下文块，帮助 WriteAgent 区分"创建单据"和"追问数据"。"""
+        parts = []
+        if messages:
+            recent = messages[-10:]
+            history = "\n".join([
+                f"{'用户' if m['role'] == 'user' else 'AI'}: {m['content'][:200]}"
+                for m in recent
+            ])
+            parts.append(f"最近对话:\n{history}")
+
+        last_result = context.get("last_result")
+        if last_result and isinstance(last_result, dict):
+            last_query = context.get("last_query", "")
+            if last_query:
+                parts.append(f"上一轮是数据查询: {last_query}")
+
+        return "\n\n".join(parts) if parts else "（无上下文）"

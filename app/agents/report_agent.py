@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 # 报表生成 Prompt
 REPORT_PROMPT = """你是一个报表专家。根据用户的自然语言描述，生成报表配置。
 
+## 对话上下文
+{context_block}
+
 ## 用户描述
 {question}
 
@@ -126,9 +129,11 @@ class ReportAgent:
             schema = await self.db_tool._get_schema()
 
             # 3. LLM 生成报表定义
+            context_block = self._build_context_block(messages, context)
             prompt = REPORT_PROMPT.format(
                 question=user_input,
                 schema=schema,
+                context_block=context_block,
             )
             response = await llm_client.chat(prompt)
 
@@ -194,6 +199,31 @@ class ReportAgent:
             "chart_type": template["chart_type"],
             "sql": sql,
         }
+
+
+    @staticmethod
+    def _build_context_block(messages: list[dict], context: dict) -> str:
+        """构建对话上下文块，注入报表生成 prompt。"""
+        parts = []
+        if messages:
+            recent = messages[-10:]
+            history = "\n".join([
+                f"{'用户' if m['role'] == 'user' else 'AI'}: {m['content'][:300]}"
+                for m in recent
+            ])
+            parts.append(f"最近对话:\n{history}")
+
+        last_result = context.get("last_result")
+        if last_result and isinstance(last_result, dict):
+            last_query = context.get("last_query", "")
+            data = last_result.get("data") or []
+            if last_query:
+                parts.append(
+                    f"上一轮查询: {last_query}\n"
+                    f"结果({len(data)}条): {str(data[:3])[:500]}"
+                )
+
+        return "\n\n".join(parts) if parts else "（无上下文）"
 
 
 # 全局实例

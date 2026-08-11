@@ -139,7 +139,11 @@ async def data_node(state: AgentState) -> dict:
     if should_reuse_result(user_input, context):
         logger.info(f"追问复用上次查询结果: {user_input[:50]}")
         result = compose_reuse_reply(user_input, context)
-        return {"result": result, "agent_name": "data_agent"}
+        # 如果复用结果有效（非 error 且有数据），直接返回
+        if result.get("status") == "ok" and result.get("data"):
+            return {"result": result, "agent_name": "data_agent"}
+        # 否则 fall through 到正常查询
+        logger.info(f"复用结果无效（{result.get('message')}），改为重新查询")
 
     # 正常查询
     agent = DataAgent()
@@ -220,12 +224,38 @@ async def conversation_node(state: AgentState) -> dict:
         sql = last_result.get("sql", "")
         data_context_text = f"\n## 上一轮数据查询上下文\n- 上一轮问题: {last_query}\n- SQL: {sql}\n- 结果({len(data)}条): {str(data[:5])[:1000]}"
 
+    # 加载用户长期记忆（偏好、习惯、事实等）
+    user_memory_text = ""
+    try:
+        from app.memory.user_memory import user_memory
+        user_id = state.get("user_id", 0)
+        if user_id:
+            prefs = await user_memory.get_user_preferences(user_id)
+            if prefs:
+                # 提取记忆内容（排除 recent_queries 和 default_filters）
+                memory_items = []
+                for k, v in prefs.items():
+                    if k in ("recent_queries", "default_filters"):
+                        continue
+                    if isinstance(v, dict):
+                        content = v.get("content", "")
+                        mtype = v.get("memory_type", "")
+                        if content:
+                            memory_items.append(f"- [{mtype}] {content}")
+                    elif isinstance(v, str):
+                        memory_items.append(f"- {v}")
+                if memory_items:
+                    user_memory_text = "\n## 用户长期记忆\n" + "\n".join(memory_items[-10:])
+    except Exception:
+        pass
+
     from app.agent.llm_client import llm_client
     prompt = f"""你是一个企业 AI 助手，具有对话记忆能力。根据对话历史回答用户问题。
 
 ## 对话历史
 {history_text if history_text else "（无历史对话）"}
 {data_context_text}
+{user_memory_text}
 
 ## 用户问题
 {user_input}
