@@ -53,9 +53,16 @@ class Settings(BaseSettings):
     session_ttl: int = 86400        # 会话过期时间（秒），默认 24 小时
     session_max_messages: int = 50  # 会话消息保留上限
 
-    # Qdrant 向量数据库配置
-    qdrant_url: str = "http://172.177.3.43:6333"
-    qdrant_collection: str = "knowledge_base"
+    # Milvus 向量数据库配置
+    milvus_host: str = "172.177.3.43"
+    milvus_port: int = 19530
+    milvus_collection: str = "knowledge_base"
+    milvus_dim: int = 1024  # 向量维度（BAAI/bge-large-zh-v1.5 = 1024）
+
+    # Embedding 配置
+    embedding_api_url: str = ""  # 嵌入 API 地址，如 https://api.siliconflow.cn/v1/embeddings
+    embedding_api_key: str = ""  # 嵌入 API 密钥
+    embedding_model: str = "BAAI/bge-large-zh-v1.5"  # 嵌入模型名称
 
     # 查询沙箱配置
     sql_statement_timeout: int = 10  # 秒

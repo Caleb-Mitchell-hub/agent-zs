@@ -1,21 +1,34 @@
 #!/usr/bin/env python3
 """初始化知识库
 
-添加示例知识到 Qdrant 向量数据库
+添加示例知识到 Milvus 向量数据库
 """
 
 import asyncio
-import httpx
-import random
+import sys
+import os
 
-# Qdrant 配置
-QDRANT_URL = "http://172.177.3.43:6333"
-COLLECTION_NAME = "knowledge_base"
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# 示例知识
+from pymilvus import MilvusClient
+from app.config import settings
+
+MILVUS_HOST = settings.milvus_host
+MILVUS_PORT = settings.milvus_port
+MILVUS_URI = f"http://{MILVUS_HOST}:{MILVUS_PORT}"
+COLLECTION_NAME = settings.milvus_collection
+VECTOR_DIM = settings.milvus_dim
+
+FIELD_ID = "id"
+FIELD_DOC_ID = "doc_id"
+FIELD_VECTOR = "vector"
+FIELD_TITLE = "title"
+FIELD_CONTENT = "content"
+FIELD_CATEGORY = "category"
+
 KNOWLEDGE_DATA = [
     {
-        "id": "doc-001",
+        "doc_id": "doc-001",
         "title": "采购订单创建流程",
         "content": """采购订单创建流程：
 
@@ -36,7 +49,7 @@ KNOWLEDGE_DATA = [
         "category": "manual",
     },
     {
-        "id": "doc-002",
+        "doc_id": "doc-002",
         "title": "销售订单审批规则",
         "content": """销售订单审批规则：
 
@@ -57,7 +70,7 @@ KNOWLEDGE_DATA = [
         "category": "rule",
     },
     {
-        "id": "doc-003",
+        "doc_id": "doc-003",
         "title": "库存查询方法",
         "content": """库存查询方法：
 
@@ -81,7 +94,7 @@ KNOWLEDGE_DATA = [
         "category": "faq",
     },
     {
-        "id": "doc-004",
+        "doc_id": "doc-004",
         "title": "入库操作规范",
         "content": """入库操作规范：
 
@@ -109,7 +122,7 @@ KNOWLEDGE_DATA = [
         "category": "manual",
     },
     {
-        "id": "doc-005",
+        "doc_id": "doc-005",
         "title": "出库操作规范",
         "content": """出库操作规范：
 
@@ -142,97 +155,48 @@ KNOWLEDGE_DATA = [
 ]
 
 
-def get_embedding(text: str) -> list[float]:
-    """生成文本向量（简单实现）"""
-    # 实际项目中应该使用 sentence-transformers
-    # 这里使用简单的哈希方法生成伪向量
-    import hashlib
-    hash_obj = hashlib.md5(text.encode())
-    hash_hex = hash_obj.hexdigest()
-
-    # 将哈希转换为向量
-    vector = []
-    for i in range(0, len(hash_hex), 2):
-        val = int(hash_hex[i:i+2], 16) / 255.0
-        vector.append(val)
-
-    # 扩展到 384 维
-    while len(vector) < 384:
-        vector.extend(vector[:384-len(vector)])
-
-    return vector[:384]
-
-
-async def create_collection():
-    """创建向量集合"""
-    async with httpx.AsyncClient() as client:
-        # 检查集合是否存在
-        response = await client.get(f"{QDRANT_URL}/collections/{COLLECTION_NAME}")
-
-        if response.status_code == 200:
-            print(f"集合已存在: {COLLECTION_NAME}")
-            return True
-
-        # 创建集合
-        response = await client.put(
-            f"{QDRANT_URL}/collections/{COLLECTION_NAME}",
-            json={
-                "vectors": {
-                    "size": 384,
-                    "distance": "Cosine",
-                },
-            },
-        )
-
-        if response.status_code == 200:
-            print(f"集合创建成功: {COLLECTION_NAME}")
-            return True
-        else:
-            print(f"集合创建失败: {response.status_code}")
-            return False
-
-
-async def add_documents():
-    """添加文档到知识库"""
-    async with httpx.AsyncClient() as client:
-        points = []
-        for doc in KNOWLEDGE_DATA:
-            vector = get_embedding(doc["content"])
-            points.append({
-                "id": doc["id"],
-                "vector": vector,
-                "payload": {
-                    "title": doc["title"],
-                    "content": doc["content"],
-                    "category": doc["category"],
-                },
-            })
-
-        response = await client.put(
-            f"{QDRANT_URL}/collections/{COLLECTION_NAME}/points",
-            json={"points": points},
-        )
-
-        if response.status_code == 200:
-            print(f"文档添加成功: {len(points)} 条")
-            return True
-        else:
-            print(f"文档添加失败: {response.status_code}")
-            return False
-
-
 async def main():
     """主函数"""
-    print("初始化知识库...")
+    print(f"初始化知识库（Milvus {MILVUS_URI}）...")
 
-    # 创建集合
-    if not await create_collection():
-        return
+    client = MilvusClient(uri=MILVUS_URI)
 
-    # 添加文档
-    if not await add_documents():
-        return
+    # 删除旧集合（如有 schema 冲突）
+    if client.has_collection(COLLECTION_NAME):
+        stats = client.get_collection_stats(COLLECTION_NAME)
+        row_count = stats.get("row_count", 0)
+        if row_count > 0:
+            print(f"集合中已有 {row_count} 条数据，跳过初始化")
+            return
+        # 空集合，删除后重建
+        client.drop_collection(COLLECTION_NAME)
+        print("已删除空集合，准备重建")
 
+    # 创建集合（auto_id=True，Milvus 自动生成 int64 主键）
+    client.create_collection(
+        collection_name=COLLECTION_NAME,
+        dimension=VECTOR_DIM,
+        metric_type="COSINE",
+        auto_id=True,
+        primary_field_name=FIELD_ID,
+    )
+    client.load_collection(COLLECTION_NAME)
+    print(f"集合创建成功: {COLLECTION_NAME}，维度={VECTOR_DIM}")
+
+    # 添加文档（零向量占位）
+    data = []
+    for doc in KNOWLEDGE_DATA:
+        data.append({
+            FIELD_DOC_ID: doc["doc_id"],
+            FIELD_VECTOR: [0.0] * VECTOR_DIM,
+            FIELD_TITLE: doc["title"],
+            FIELD_CONTENT: doc["content"],
+            FIELD_CATEGORY: doc["category"],
+        })
+
+    result = client.insert(COLLECTION_NAME, data)
+    count = result.get("insert_count", 0)
+    print(f"文档添加成功: {count} 条（零向量占位，配置 Embedding API 后需重新向量化）")
     print("知识库初始化完成!")
 
 

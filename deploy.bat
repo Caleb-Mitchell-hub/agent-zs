@@ -19,6 +19,7 @@ scp app/config_center/__init__.py root@172.177.3.43:/opt/agent-zs/app/config_cen
 scp app/config_center/cache.py root@172.177.3.43:/opt/agent-zs/app/config_center/cache.py
 scp app/config_center/service.py root@172.177.3.43:/opt/agent-zs/app/config_center/service.py
 scp app/tools/database_tool.py root@172.177.3.43:/opt/agent-zs/app/tools/database_tool.py
+scp app/tools/search_tool.py root@172.177.3.43:/opt/agent-zs/app/tools/search_tool.py
 scp app/tools/rag_tool.py root@172.177.3.43:/opt/agent-zs/app/tools/rag_tool.py
 scp app/tools/report_templates.py root@172.177.3.43:/opt/agent-zs/app/tools/report_templates.py
 scp app/tools/registry.py root@172.177.3.43:/opt/agent-zs/app/tools/registry.py
