@@ -23,7 +23,7 @@ from app.security.audit import audit_logger
 from app.memory import session_memory
 from app.memory.task_memory import task_memory
 from app.memory.extractor import memory_extractor
-from app.orchestrator.planner import planner
+from app.orchestrator.planner import planner, extract_task_title
 from app.tools.follow_up_router import should_reuse_result, compose_reuse_reply
 from app.tools.time_tool import TimeTool
 from app.tools.weather_tool import WeatherTool
@@ -32,7 +32,7 @@ from app.agents.write_agent import WriteAgent
 from app.agents.knowledge_agent import KnowledgeAgent
 from app.agents.report_agent import ReportAgent
 from app.tasks.planner import parse_plan_input, split_today, split_month, split_year
-from app.tasks.service import get_workday_sets
+from app.tasks.service import get_workday_sets, create_task
 
 logger = logging.getLogger(__name__)
 
@@ -393,6 +393,28 @@ async def task_plan_node(state: AgentState) -> dict:
     }
 
 
+async def task_create_node(state: AgentState) -> dict:
+    """创建任务节点（确定性，零 LLM）
+
+    意图已由 classify_intent 判定为 task_create，此处用正则提取标题，
+    直接落库 user_tasks，返回创建结果（前端据此刷新任务列表）。
+    """
+    user_input = state["user_input"]
+    title = extract_task_title(user_input)
+    user_id = state.get("user_id", 0)
+    await create_task(user_id, title)
+    return {
+        "result": {
+            "status": "ok",
+            "data": None,
+            "sql": None,
+            "message": f"✅ 已创建任务「{title}」",
+            "task_created": True,
+        },
+        "agent_name": "task_creator",
+    }
+
+
 # ─────────────────────────── 路由（确定性条件边） ───────────────────────────
 
 def route_by_intent(state: AgentState) -> str:
@@ -409,6 +431,7 @@ def route_by_intent(state: AgentState) -> str:
         "time": "time_node",
         "weather": "weather_node",
         "task_plan": "task_plan_node",
+        "task_create": "task_create_node",
     }
     return mapping.get(intent, "data_node")
 
@@ -438,6 +461,7 @@ def build_graph():
     g.add_node("time_node", _with_progress("正在获取时间...", time_node))
     g.add_node("weather_node", _with_progress("正在查询天气...", weather_node))
     g.add_node("task_plan_node", _with_progress("正在规划任务...", task_plan_node))
+    g.add_node("task_create_node", _with_progress("正在创建任务...", task_create_node))
     g.add_node("save_history", _with_progress("正在整理查询结果...", save_history))
     g.add_node("memory_extract", memory_extract)
 
@@ -463,11 +487,12 @@ def build_graph():
             "time_node": "time_node",
             "weather_node": "weather_node",
             "task_plan_node": "task_plan_node",
+            "task_create_node": "task_create_node",
         },
     )
 
     # 执行节点 → 保存历史 → 记忆抽取 → 结束
-    for node in ("data_node", "knowledge_node", "report_node", "write_node", "conversation_node", "time_node", "weather_node", "task_plan_node"):
+    for node in ("data_node", "knowledge_node", "report_node", "write_node", "conversation_node", "time_node", "weather_node", "task_plan_node", "task_create_node"):
         g.add_edge(node, "save_history")
     g.add_edge("save_history", "memory_extract")
     g.add_edge("memory_extract", END)

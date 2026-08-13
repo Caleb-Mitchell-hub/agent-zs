@@ -83,7 +83,7 @@ INTENT_RULES = [
 _RULE_CONFIDENCE_RATIO = 2.0
 
 # 合法意图集合（LLM 输出校验白名单，防止脏数据透传到下游路由）
-VALID_INTENTS = {"query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat", "task_plan"}
+VALID_INTENTS = {"query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat", "task_plan", "task_create"}
 
 # 意图分类 Prompt
 INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要根据对话上下文和当前用户输入判断其所属意图类别。
@@ -163,6 +163,13 @@ INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要�
   “今日任务：完成库存盘点”
   “本月任务：梳理采购流程”
 
+- task_create：
+  用户希望创建单个任务或提醒（非业务单据），属于任务管理器。
+  示例：
+  “创建任务：明天开会”
+  “提醒我下午提交周报”
+  “新增待办 交季度报表”
+
 【判断要求】
 1. 必须结合对话上下文理解用户当前输入的真正意图。
 2. 如果当前输入是省略表达、指代词或追问（如”那北京呢？””按地区分””改成华为”），必须根据对话历史推断其完整意图。
@@ -171,7 +178,7 @@ INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要�
 5. 如果多个类别都符合，选择用户主要目的对应的类别。
 6. 输出必须严格匹配以下格式：
 
-query / create / update / report / knowledge / memory / time / weather / chat / task_plan
+query / create / update / report / knowledge / memory / time / weather / chat / task_plan / task_create
 
 【对话历史】
 {conversation_history}
@@ -227,6 +234,53 @@ _TIME_BEFORE_CREATE = re.compile(
     r").{0,4}新增"
 )
 
+# 疑问前缀 + 创建动词 = 用户在问"怎么创建订单"这类流程/方法问题，不是要创建单据
+# 例："怎么创建订单" → knowledge，"如何新建入库单" → knowledge
+# 与 _TIME_BEFORE_CREATE 同理：疑问前缀改变了"创建"的动作语义，应跳过 create 前置匹配
+_QUESTION_BEFORE_CREATE = re.compile(
+    r"(?:怎么|如何|怎样|怎么样|为啥|为什么|为何).{0,4}(?:创建|新建|新增|下单|开单|建单)"
+)
+
+# task_create 意图前置正则：区分「创建任务」与「创建单据」
+# 「创建/新建/新增/添加 + 任务/待办/提醒/备忘」→ 任务管理器创建任务（非 ERP 单据）
+# 「提醒我 / 设置提醒」→ 创建提醒任务
+# 必须放在 create 前置匹配与关键词打分之前，因为「创建」「新增」会命中 create 关键词
+_TASK_CREATE_PRE_PATTERNS = [
+    r"(?:创建|新建|新增|添加)(?:一个|个|条)?\s*(?:任务|待办|提醒|备忘)",
+    r"提醒我",
+    r"设置提醒",
+]
+
+# 任务标题前缀剥离正则（extract_task_title 使用）
+_TASK_TITLE_PREFIX = re.compile(
+    r"^(?:提醒我|设置提醒)\s*[:：]?\s*"
+    r"|^(?:创建|新建|新增|添加)(?:一个|个|条)?\s*(?:任务|待办|提醒|备忘)\s*[:：]?\s*"
+)
+
+
+def extract_task_title(user_input: str) -> str:
+    """从用户输入提取任务标题（确定性正则，零 LLM）
+
+    剥离「创建/新增/添加任务」「提醒我」等前缀，剩余即标题：
+    - "创建任务：明天开会" → "明天开会"
+    - "提醒我下午提交周报" → "下午提交周报"
+    - "新增待办 交季度报表" → "交季度报表"
+
+    提取后为空（如只输入"创建任务"）时回退原文，由调用方兜底。
+    """
+    title = _TASK_TITLE_PREFIX.sub("", user_input.strip()).strip()
+    title = title.strip("「」『』\"'，,。.；; ")
+    return title or user_input.strip()
+
+
+# 通用列名：单独出现在用户输入中不构成"追问上一轮结果"的可靠信号。
+# 例：上轮结果含列名"仓库"，用户问"北京仓库有哪些"是在查新地点（北京）的数据，
+# 而非追问上一轮"上海仓库3"的结果——"仓库"这类通用维度词不能作为数据追问信号。
+_GENERIC_COLUMN_NAMES = {
+    "仓库", "数量", "金额", "名称", "编号", "日期", "时间", "状态", "备注",
+    "地址", "电话", "单价", "单位", "类型", "规格", "客户", "区域", "供应商",
+}
+
 
 class Planner:
     """任务规划器"""
@@ -249,16 +303,24 @@ class Planner:
         if not user_input or not user_input.strip():
             return None
 
+        # 前置检查：创建任务意图（"创建任务"/"提醒我"等）
+        # 必须优先于 create 前置匹配与关键词打分，因为「创建」「新增」会命中 create 关键词
+        for pat in _TASK_CREATE_PRE_PATTERNS:
+            if re.search(pat, user_input):
+                logger.info(f"规则引擎前置匹配 task_create (pattern={pat}): {user_input[:50]}")
+                return "task_create"
+
         # 前置检查：明确创建单据意图（"新增销售订单"/"新增一个采购订单"等）
         # 必须在关键词打分之前执行，因为"销售""订单"等会命中 query 关键词
-        # 例外：时间表达式在"新增"之前（"4月新增销售订单"）→ query，不是 create
-        if not _TIME_BEFORE_CREATE.search(user_input):
+        # 例外 1：时间表达式在"新增"之前（"4月新增销售订单"）→ query，不是 create
+        # 例外 2：疑问前缀（"怎么创建订单"）→ knowledge，不是 create
+        if not _TIME_BEFORE_CREATE.search(user_input) and not _QUESTION_BEFORE_CREATE.search(user_input):
             for pat in _CREATE_PRE_PATTERNS:
                 if re.search(pat, user_input):
                     logger.info(f"规则引擎前置匹配 create (pattern={pat}): {user_input[:50]}")
                     return "create"
         else:
-            logger.info(f"检测到时间+新增，跳过 create 前置匹配: {user_input[:50]}")
+            logger.info(f"检测到时间/疑问前缀+创建，跳过 create 前置匹配: {user_input[:50]}")
 
         # 计算每个意图的得分：命中关键词长度之和
         scores: dict[str, int] = {}
@@ -366,10 +428,15 @@ class Planner:
                         return True
                 # B2. 检查列名（用户提到上一轮结果中的列名，如"SKU ID"→"SKU"）
                 for col_name in row.keys():
+                    # 通用列名（仓库/数量等）单独出现不足以判定为数据追问，跳过
+                    if col_name in _GENERIC_COLUMN_NAMES:
+                        continue
                     if len(col_name) >= 2 and col_name in user_input:
                         return True
                     # 复合列名拆开匹配，如 "SKU ID" → "SKU"
                     for part in col_name.split():
+                        if part in _GENERIC_COLUMN_NAMES:
+                            continue
                         if len(part) >= 2 and part in user_input:
                             return True
 

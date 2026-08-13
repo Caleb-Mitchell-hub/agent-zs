@@ -42,7 +42,7 @@ async def index():
             .sidebar-header h3 span { font-size: 11px; color: #999; font-weight: normal; }
             .new-chat-btn { width: 100%; padding: 10px 0; background: #1890ff; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: background 0.2s; }
             .new-chat-btn:hover { background: #40a9ff; }
-            .session-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+            .session-list { flex: 0 0 40%; overflow-y: auto; padding: 8px 0; min-height: 0; }
             .session-list::-webkit-scrollbar { width: 4px; }
             .session-list::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 2px; }
             .session-item { padding: 12px 16px; cursor: pointer; border-left: 3px solid transparent; display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
@@ -55,9 +55,13 @@ async def index():
             .session-item:hover .del-btn { visibility: visible; }
             .session-item .del-btn:hover { background: #fff2f0; color: #ff4d4f; }
             .no-sessions { padding: 32px 16px; text-align: center; color: #bbb; font-size: 13px; }
+            .session-group-head { padding: 8px 16px 4px; font-size: 11px; color: #999; }
+            .session-group-head span { color: #bbb; }
+            .task-group-head { padding: 8px 12px 4px; font-size: 11px; color: #999; }
+            .task-group-head span { color: #bbb; }
 
             /* ── 任务区 ── */
-            .task-panel { border-top: 1px solid #e8e8e8; max-height: 45%; display: flex; flex-direction: column; }
+            .task-panel { border-top: 1px solid #e8e8e8; flex: 1 1 60%; display: flex; flex-direction: column; min-height: 0; }
             .task-panel .task-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; flex-shrink: 0; }
             .task-panel .task-header span { font-size: 13px; color: #333; font-weight: 500; }
             .task-panel .task-header #taskCount { font-size: 11px; color: #999; font-weight: normal; }
@@ -202,9 +206,10 @@ async def index():
         <!-- 侧边栏 -->
         <div class="sidebar">
             <div class="sidebar-header">
-                <h3>对话列表 <span id="sessionCount"></span></h3>
+                <h3 style="cursor:pointer;user-select:none;" onclick="toggleSessionList()">对话列表 <span id="sessionCount"></span><span id="sessionArrow" style="margin-left:auto;">▾</span></h3>
                 <button class="new-chat-btn" onclick="newChat()">＋ 新对话</button>
             </div>
+            <input type="text" id="sessionSearch" placeholder="搜索对话..." oninput="loadSessionList()" style="margin:0 12px 8px;padding:6px 10px;border:1px solid #e8e8e8;border-radius:6px;font-size:12px;box-sizing:border-box;width:calc(100% - 24px);">
             <div class="session-list" id="sessionList">
                 <div class="no-sessions">加载中...</div>
             </div>
@@ -219,6 +224,10 @@ async def index():
                     <div class="task-tab" data-filter="doing" onclick="switchTaskTab('doing')">处理中</div>
                 </div>
                 <input type="text" id="taskSearch" placeholder="搜索任务..." oninput="loadTasks()" style="margin:0 12px 6px;padding:6px 10px;border:1px solid #e8e8e8;border-radius:6px;font-size:12px;">
+                <div style="display:flex;gap:6px;padding:0 12px 6px;">
+                    <input type="text" id="taskAddInput" placeholder="新增任务，回车确认..." onkeypress="if(event.key==='Enter')addTask()" style="flex:1;padding:6px 10px;border:1px solid #e8e8e8;border-radius:6px;font-size:12px;">
+                    <button onclick="addTask()" style="padding:6px 12px;background:#1890ff;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">＋</button>
+                </div>
                 <div class="task-list" id="taskList"></div>
             </div>
         </div>
@@ -324,25 +333,49 @@ async def index():
                     });
                     const data = await res.json();
                     if (data.status !== 'ok') return;
-                    const sessions = data.sessions || [];
+                    let sessions = data.sessions || [];
                     document.getElementById('sessionCount').textContent = sessions.length ? '(' + sessions.length + ')' : '';
+                    // 搜索过滤
+                    const kw = document.getElementById('sessionSearch').value.trim().toLowerCase();
+                    if (kw) {
+                        sessions = sessions.filter(s => (s.title || '新对话').toLowerCase().indexOf(kw) !== -1);
+                    }
                     if (sessions.length === 0) {
-                        sessionList.innerHTML = '<div class="no-sessions">暂无对话</div>';
+                        sessionList.innerHTML = '<div class="no-sessions">' + (kw ? '无匹配对话' : '暂无对话') + '</div>';
                         return;
                     }
-                    sessionList.innerHTML = sessions.map(s => {
-                        const date = s.last_active_at ? new Date(s.last_active_at).toLocaleDateString('zh-CN') : '';
-                        const isActive = s.session_id === activeSessionId;
-                        return '<div class="session-item' + (isActive ? ' active' : '') + '" ' +
-                            'onclick="openSession(\\'' + s.session_id + '\\')" ' +
-                            'title="' + (s.title || '新对话').replace(/"/g, '&quot;') + '">' +
-                            '<div class="info">' +
-                            '<div class="title">' + escapeHtml(s.title || '新对话') + '</div>' +
-                            '<div class="meta">' + date + (s.message_count ? ' · ' + s.message_count + ' 条消息' : '') + '</div>' +
-                            '</div>' +
-                            '<button class="del-btn" onclick="event.stopPropagation();deleteSession(\\'' + s.session_id + '\\')" title="删除">×</button>' +
-                            '</div>';
-                    }).join('');
+                    // 按时间分组：今天 / 昨天 / 更早
+                    const now = new Date();
+                    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                    const yesterdayStart = todayStart - 86400000;
+                    const groups = [{ name: '今天', items: [] }, { name: '昨天', items: [] }, { name: '更早', items: [] }];
+                    sessions.forEach(s => {
+                        const t = s.last_active_at ? new Date(s.last_active_at).getTime() : 0;
+                        if (t >= todayStart) groups[0].items.push(s);
+                        else if (t >= yesterdayStart) groups[1].items.push(s);
+                        else groups[2].items.push(s);
+                    });
+                    let html = '';
+                    groups.forEach(g => {
+                        if (g.items.length === 0) return;
+                        html += '<div class="session-group">' +
+                            '<div class="session-group-head">' + g.name + ' <span>(' + g.items.length + ')</span></div>';
+                        g.items.forEach(s => {
+                            const date = s.last_active_at ? new Date(s.last_active_at).toLocaleDateString('zh-CN') : '';
+                            const isActive = s.session_id === activeSessionId;
+                            html += '<div class="session-item' + (isActive ? ' active' : '') + '" ' +
+                                'onclick="openSession(\\'' + s.session_id + '\\')" ' +
+                                'title="' + (s.title || '新对话').replace(/"/g, '&quot;') + '">' +
+                                '<div class="info">' +
+                                '<div class="title">' + escapeHtml(s.title || '新对话') + '</div>' +
+                                '<div class="meta">' + date + (s.message_count ? ' · ' + s.message_count + ' 条消息' : '') + '</div>' +
+                                '</div>' +
+                                '<button class="del-btn" onclick="event.stopPropagation();deleteSession(\\'' + s.session_id + '\\')" title="删除">×</button>' +
+                                '</div>';
+                        });
+                        html += '</div>';
+                    });
+                    sessionList.innerHTML = html;
                 } catch (e) {
                     console.error('加载会话列表失败', e);
                 }
@@ -694,6 +727,8 @@ async def index():
                     }
                     if (finalData) {
                         addMessage('assistant', formatResult(finalData), '', assistantRawText(finalData));
+                        // 对话中创建了任务：刷新左侧任务列表
+                        if (finalData.task_created) loadTasks();
                     } else {
                         addMessage('assistant', '<div class="error-msg">未收到查询结果</div>');
                     }
@@ -728,22 +763,80 @@ async def index():
                 currentTasks = tasks;
                 const el = document.getElementById('taskList');
                 document.getElementById('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
-                el.innerHTML = tasks.length ? tasks.map(t => `
-                    <div class="task-item" onclick="taskMenu(${t.task_id})">
-                        <span class="dot ${t.overdue ? 'overdue' : t.status}"></span>
-                        <span style="flex:1;font-size:12px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.title)}</span>
-                    </div>`).join('') : '<div style="padding:20px;text-align:center;color:#bbb;font-size:12px;">暂无任务</div>';
+                if (!tasks.length) {
+                    el.innerHTML = '<div style="padding:20px;text-align:center;color:#bbb;font-size:12px;">暂无任务</div>';
+                    return;
+                }
+                const now = new Date();
+                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                const tomorrowStart = todayStart + 86400000;
+                const dayAfterStart = tomorrowStart + 86400000;
+                function groupOf(t) {
+                    if (t.overdue) return { key: 'overdue', name: '已逾期' };
+                    if (!t.deadline) return { key: 'none', name: '无截止日期' };
+                    const d = new Date(t.deadline).getTime();
+                    if (d < todayStart) return { key: 'overdue', name: '已逾期' };
+                    if (d < tomorrowStart) return { key: 'today', name: '今天' };
+                    if (d < dayAfterStart) return { key: 'tomorrow', name: '明天' };
+                    return { key: 'later', name: '更晚' };
+                }
+                const order = ['overdue', 'none', 'today', 'tomorrow', 'later'];
+                const groups = {};
+                tasks.forEach(t => {
+                    const g = groupOf(t);
+                    (groups[g.key] = groups[g.key] || { name: g.name, items: [] }).items.push(t);
+                });
+                let html = '';
+                order.forEach(key => {
+                    const g = groups[key];
+                    if (!g) return;
+                    html += '<div class="task-group">' +
+                        '<div class="task-group-head">' + g.name + ' <span>(' + g.items.length + ')</span></div>';
+                    g.items.forEach(t => {
+                        html += '<div class="task-item" onclick="taskMenu(' + t.task_id + ')">' +
+                            '<span class="dot ' + (t.overdue ? 'overdue' : t.status) + '"></span>' +
+                            '<span style="flex:1;font-size:12px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(t.title) + '</span>' +
+                            '</div>';
+                    });
+                    html += '</div>';
+                });
+                el.innerHTML = html;
             }
             function switchTaskTab(filter) {
                 taskFilter = filter;
                 document.querySelectorAll('.task-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
                 loadTasks();
             }
+            async function addTask() {
+                const inp = document.getElementById('taskAddInput');
+                const title = inp.value.trim();
+                if (!title) return;
+                try {
+                    const res = await fetch(API_TASKS, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'ok') {
+                        inp.value = '';
+                        loadTasks();
+                    } else {
+                        alert('创建失败：' + (data.message || ('HTTP ' + res.status)));
+                    }
+                } catch (e) { alert('创建失败：' + e.message); }
+            }
             function toggleTaskPanel() {
                 const list = document.getElementById('taskList');
                 const hidden = list.style.display === 'none';
                 list.style.display = hidden ? '' : 'none';
                 document.getElementById('taskArrow').textContent = hidden ? '▾' : '▸';
+            }
+            function toggleSessionList() {
+                const list = document.getElementById('sessionList');
+                const hidden = list.style.display === 'none';
+                list.style.display = hidden ? '' : 'none';
+                document.getElementById('sessionArrow').textContent = hidden ? '▾' : '▸';
             }
             async function taskMenu(id) {
                 // 点击任务：在「待办」与「已完成」之间切换状态
