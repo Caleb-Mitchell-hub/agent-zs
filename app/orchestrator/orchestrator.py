@@ -13,6 +13,7 @@
 
 import logging
 import uuid
+from collections.abc import Callable
 from enum import Enum
 
 from pydantic import BaseModel
@@ -70,6 +71,7 @@ class Orchestrator:
         tenant_id: int,
         intent: str = None,
         user_permissions: dict | None = None,
+        progress_callback: Callable | None = None,
     ) -> dict:
         """处理用户请求（基于 LangGraph 图执行）
 
@@ -79,6 +81,7 @@ class Orchestrator:
             user_id: 用户 ID
             tenant_id: 租户 ID
             intent: 前端直达意图（可选，快捷按钮直接携带，跳过分类）
+            progress_callback: 进度回调（可选，流式输出时由各图节点调用）
 
         Returns:
             dict: 执行结果
@@ -103,6 +106,7 @@ class Orchestrator:
             "messages": messages,
             "context": context,
             "user_permissions": user_permissions or {},
+            "progress_callback": progress_callback,
         }
 
         try:

@@ -63,7 +63,7 @@ async def index():
             .message.assistant .msg-body { align-items: flex-start; }
             .message .content { max-width: 100%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; word-break: break-word; }
             .message.user .content { background: #1890ff; color: white; border-bottom-right-radius: 4px; }
-            .message.assistant .content { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+            .message.assistant .content { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); white-space: pre-wrap; }
 
             /* 旧消息加载时灰色背景 */
             .message.assistant.history .content { background: #fafafa; }
@@ -159,6 +159,7 @@ async def index():
 
             // ── 会话管理 ──────────────────────────────────
             const API_QUERY = '/api/v1/query';
+            const API_QUERY_STREAM = '/api/v1/query/stream';
             const API_SESSIONS = '/api/v1/sessions';
             let activeSessionId = null;
             const chatBox = document.getElementById('chatBox');
@@ -295,7 +296,39 @@ async def index():
                         return formatTable(data);
                     }
                 } catch(e) {}
-                return escapeHtml(text || '');
+                // 历史消息按标准 Markdown 表格存储，这里渲染成 HTML 表格
+                return formatMarkdown(text || '');
+            }
+
+            function formatMarkdown(text) {
+                const lines = text.split('\\n');
+                let html = '';
+                let i = 0;
+                while (i < lines.length) {
+                    const line = lines[i];
+                    const isTable = line.trim().indexOf('|') === 0 && i + 1 < lines.length && lines[i + 1].indexOf('---') !== -1;
+                    if (isTable) {
+                        const headers = line.trim().slice(1, -1).split('|').map(c => c.trim());
+                        let t = '<div class="table-wrap"><table><tr>';
+                        headers.forEach(h => { t += '<th>' + escapeHtml(h) + '</th>'; });
+                        t += '</tr>';
+                        i += 2;
+                        while (i < lines.length && lines[i].trim().indexOf('|') === 0) {
+                            const cells = lines[i].trim().slice(1, -1).split('|').map(c => c.trim());
+                            t += '<tr>';
+                            headers.forEach((_, idx) => { t += '<td>' + escapeHtml(cells[idx] !== undefined ? cells[idx] : '') + '</td>'; });
+                            t += '</tr>';
+                            i++;
+                        }
+                        t += '</table></div>';
+                        html += t;
+                        continue;
+                    }
+                    html += escapeHtml(line);
+                    html += '\\n';
+                    i++;
+                }
+                return html;
             }
 
             function formatTable(rows) {
@@ -321,15 +354,11 @@ async def index():
                 if (data.status === 'error' || data.status === 'clarify') {
                     return '<div class="error-msg">' + escapeHtml(data.message || '抱歉，无法处理您的请求') + '</div>';
                 }
-                if (!data.data || data.data.length === 0) {
-                    return escapeHtml(data.message || '查询完成，无数据返回');
-                }
-                let html = formatTable(data.data);
-                if (data.message) html += '<p style="color:#666;margin-top:6px;">' + escapeHtml(data.message) + '</p>';
-                return html;
+                // 实时展示与复制、历史回看一致：一律渲染为标准 Markdown 文档
+                return formatMarkdown(assistantRawText(data) || '');
             }
 
-            // 复制按钮：原始文本（表格输出转 TSV，保证复制的是可读内容）
+            // 复制按钮：原始文本（标准 Markdown 表格，与历史回看保持一致）
             function assistantRawText(data) {
                 if (!data) return '';
                 if (data.status === 'error' || data.status === 'clarify') {
@@ -340,13 +369,16 @@ async def index():
                 }
                 const rows = data.data;
                 const keys = Object.keys(rows[0] || {});
-                const lines = [];
-                if (data.message) lines.push(data.message);
-                lines.push(keys.join('\\t'));
+                // 与后端 _data_to_markdown 一致：单元格中的换行转空格，保证表格结构不坏
+                const cell = v => (v === null || v === undefined ? '' : String(v).replace(/\\n/g, ' '));
+                let md = '';
+                if (data.message) md += data.message + '\\n\\n';
+                md += '| ' + keys.join(' | ') + ' |\\n';
+                md += '| ' + keys.map(() => '---').join(' | ') + ' |\\n';
                 rows.forEach(r => {
-                    lines.push(keys.map(k => r[k] === null || r[k] === undefined ? '' : String(r[k])).join('\\t'));
+                    md += '| ' + keys.map(k => cell(r[k])).join(' | ') + ' |\\n';
                 });
-                return lines.join('\\n');
+                return md;
             }
 
             // 兼容非 HTTPS（http://ip:port 下 navigator.clipboard 不可用，用 execCommand 兜底）
@@ -408,21 +440,55 @@ async def index():
                 input.disabled = true;
                 sendBtn.disabled = true;
                 typing.classList.add('show');
+                typing.textContent = 'AI 正在思考...';
 
                 try {
-                    const res = await fetch(API_QUERY, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                        body: JSON.stringify({ question: q, session_id: activeSessionId, intent: intent })
+                    // SSE 流式请求：分阶段推送进度，最后返回结果
+                    const res = await fetch(API_QUERY_STREAM +
+                        '?question=' + encodeURIComponent(q) +
+                        '&session_id=' + encodeURIComponent(activeSessionId) +
+                        '&intent=' + encodeURIComponent(intent), {
+                        headers: { 'Authorization': 'Bearer ' + token }
                     });
-                    const data = await res.json();
-                    addMessage('assistant', formatResult(data), '', assistantRawText(data));
+                    if (!res.ok || !res.body) {
+                        throw new Error('流式请求失败：' + res.status);
+                    }
+                    const reader = res.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buf = '';
+                    let finalData = null;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buf += decoder.decode(value, { stream: true });
+                        // 逐条解析 SSE 事件（SSE 事件以双换行分隔）
+                        let idx;
+                        while ((idx = buf.indexOf('\\n\\n')) !== -1) {
+                            const raw = buf.slice(0, idx);
+                            buf = buf.slice(idx + 2);
+                            const dataLine = raw.split('\\n').find(l => l.indexOf('data:') === 0);
+                            if (!dataLine) continue;
+                            let evt;
+                            try { evt = JSON.parse(dataLine.slice(5).trim()); } catch (e) { continue; }
+                            if (evt.type === 'progress') {
+                                typing.textContent = evt.message;
+                            } else if (evt.type === 'result') {
+                                finalData = evt.data;
+                            }
+                        }
+                    }
+                    if (finalData) {
+                        addMessage('assistant', formatResult(finalData), '', assistantRawText(finalData));
+                    } else {
+                        addMessage('assistant', '<div class="error-msg">未收到查询结果</div>');
+                    }
                     // 刷新侧边栏列表
                     loadSessionList();
                 } catch (e) {
                     addMessage('assistant', '<div class="error-msg">请求失败：' + escapeHtml(e.message) + '</div>');
                 } finally {
                     typing.classList.remove('show');
+                    typing.textContent = 'AI 正在思考...';
                     input.disabled = false;
                     sendBtn.disabled = false;
                     input.focus();

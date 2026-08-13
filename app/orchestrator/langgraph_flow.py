@@ -49,6 +49,26 @@ class AgentState(TypedDict, total=False):
     trace_id: str
     agent_name: str
     error: str
+    progress_callback: Any  # 进度回调（可选，流式输出）
+
+
+async def _emit_progress(state: AgentState, message: str) -> None:
+    """发送进度事件（如果配置了进度回调）"""
+    callback = state.get("progress_callback")
+    if callback is None:
+        return
+    try:
+        await callback(message)
+    except Exception as e:
+        logger.warning(f"进度事件发送失败: {e}")
+
+
+def _with_progress(message: str, node):
+    """给图节点包一层进度事件发送，不修改节点本身逻辑"""
+    async def wrapped(state: AgentState) -> dict:
+        await _emit_progress(state, message)
+        return await node(state)
+    return wrapped
 
 
 # ─────────────────────────── 确定性节点 ───────────────────────────
@@ -365,18 +385,18 @@ def build_graph():
     """构建 LangGraph 图"""
     g = StateGraph(AgentState)
 
-    # 节点注册
+    # 节点注册（包一层进度事件，节点自身逻辑不变）
     g.add_node("security_check", security_check)
     g.add_node("save_user_message", save_user_message)
-    g.add_node("classify_intent", classify_intent)
-    g.add_node("data_node", data_node)
-    g.add_node("knowledge_node", knowledge_node)
-    g.add_node("report_node", report_node)
-    g.add_node("write_node", write_node)
-    g.add_node("conversation_node", conversation_node)
-    g.add_node("time_node", time_node)
-    g.add_node("weather_node", weather_node)
-    g.add_node("save_history", save_history)
+    g.add_node("classify_intent", _with_progress("正在理解问题...", classify_intent))
+    g.add_node("data_node", _with_progress("正在生成 SQL 并查询数据库...", data_node))
+    g.add_node("knowledge_node", _with_progress("正在检索知识库...", knowledge_node))
+    g.add_node("report_node", _with_progress("正在生成报表...", report_node))
+    g.add_node("write_node", _with_progress("正在执行写操作...", write_node))
+    g.add_node("conversation_node", _with_progress("正在生成回答...", conversation_node))
+    g.add_node("time_node", _with_progress("正在获取时间...", time_node))
+    g.add_node("weather_node", _with_progress("正在查询天气...", weather_node))
+    g.add_node("save_history", _with_progress("正在整理查询结果...", save_history))
     g.add_node("memory_extract", memory_extract)
 
     # 边：安全 → 存储 → 分类 → 路由
