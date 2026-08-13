@@ -58,7 +58,10 @@ async def index():
             .message .avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
             .message.user .avatar { background: #1890ff; color: white; }
             .message.assistant .avatar { background: #52c41a; color: white; }
-            .message .content { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; word-break: break-word; }
+            .message .msg-body { display: flex; flex-direction: column; max-width: 75%; min-width: 0; }
+            .message.user .msg-body { align-items: flex-end; }
+            .message.assistant .msg-body { align-items: flex-start; }
+            .message .content { max-width: 100%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; word-break: break-word; }
             .message.user .content { background: #1890ff; color: white; border-bottom-right-radius: 4px; }
             .message.assistant .content { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
 
@@ -70,6 +73,12 @@ async def index():
             .message .content table { width: 100%; border-collapse: collapse; margin-top: 6px; min-width: 500px; font-size: 12px; }
             .message .content th, .message .content td { border: 1px solid #e8e8e8; padding: 6px 8px; text-align: left; white-space: nowrap; }
             .message .content th { background: #fafafa; font-weight: 500; }
+            /* 消息复制按钮（纯图标，无文字）：用户消息左下角、AI 消息右下角 */
+            .message .copy-btn { background: none; border: none; cursor: pointer; padding: 3px; border-radius: 4px; color: #bfbfbf; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 4px; transition: color 0.2s, background 0.2s; }
+            .message.user .msg-body .copy-btn { align-self: flex-start; }
+            .message.assistant .msg-body .copy-btn { align-self: flex-end; }
+            .message .copy-btn:hover { color: #1890ff; background: #f0f0f0; }
+            .message .copy-btn.copied { color: #52c41a; }
             .error-msg { color: #ff4d4f; background: #fff2f0; border: 1px solid #ffccc7; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
             .quick-actions { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; flex-shrink: 0; }
             .quick-btn { background: #fff; border: 1px solid #d9d9d9; padding: 6px 14px; border-radius: 16px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
@@ -218,7 +227,7 @@ async def index():
                             const role = m.role === 'user' ? 'user' : 'assistant';
                             const content = role === 'assistant' ? formatAssistantContent(m.content) : escapeHtml(m.content);
                             const extraClass = 'history';
-                            addMessageEl(role, content, extraClass);
+                            addMessageEl(role, content, extraClass, m.content);
                         });
                     }
                     chatBox.scrollTop = chatBox.scrollHeight;
@@ -254,17 +263,28 @@ async def index():
             }
 
             // ── 消息渲染 ──────────────────────────────────
-            function addMessageEl(role, content, extraClass) {
+            function addMessageEl(role, content, extraClass, rawText) {
                 const div = document.createElement('div');
                 div.className = 'message ' + role + (extraClass ? ' ' + extraClass : '');
                 const avatar = role === 'user' ? '我' : 'AI';
-                div.innerHTML = '<div class="avatar">' + avatar + '</div><div class="content">' + content + '</div>';
+                const copyBtn = '<button class="copy-btn" title="复制" onclick="copyMessage(this)">' +
+                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                    '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>' +
+                    '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>';
+                div.innerHTML = '<div class="avatar">' + avatar + '</div>' +
+                    '<div class="msg-body"><div class="content">' + content + '</div>' + copyBtn + '</div>';
+                const btn = div.querySelector('.copy-btn');
+                if (rawText) {
+                    btn.dataset.text = rawText;
+                } else {
+                    btn.style.visibility = 'hidden';
+                }
                 chatBox.appendChild(div);
                 chatBox.scrollTop = chatBox.scrollHeight;
             }
 
-            function addMessage(role, content) {
-                addMessageEl(role, content, '');
+            function addMessage(role, content, extraClass, rawText) {
+                addMessageEl(role, content, extraClass || '', rawText);
             }
 
             function formatAssistantContent(text) {
@@ -309,6 +329,56 @@ async def index():
                 return html;
             }
 
+            // 复制按钮：原始文本（表格输出转 TSV，保证复制的是可读内容）
+            function assistantRawText(data) {
+                if (!data) return '';
+                if (data.status === 'error' || data.status === 'clarify') {
+                    return data.message || '';
+                }
+                if (!data.data || data.data.length === 0) {
+                    return data.message || '';
+                }
+                const rows = data.data;
+                const keys = Object.keys(rows[0] || {});
+                const lines = [];
+                if (data.message) lines.push(data.message);
+                lines.push(keys.join('\\t'));
+                rows.forEach(r => {
+                    lines.push(keys.map(k => r[k] === null || r[k] === undefined ? '' : String(r[k])).join('\\t'));
+                });
+                return lines.join('\\n');
+            }
+
+            // 兼容非 HTTPS（http://ip:port 下 navigator.clipboard 不可用，用 execCommand 兜底）
+            function copyText(text) {
+                if (navigator.clipboard && window.isSecureContext) {
+                    return navigator.clipboard.writeText(text);
+                }
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                let ok = false;
+                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+                document.body.removeChild(ta);
+                return ok ? Promise.resolve() : Promise.reject(new Error('复制失败'));
+            }
+
+            function copyMessage(btn) {
+                const text = btn.dataset.text || '';
+                if (!text) return;
+                copyText(text).then(() => {
+                    btn.classList.add('copied');
+                    setTimeout(() => btn.classList.remove('copied'), 1500);
+                }).catch(() => {
+                    btn.classList.add('copied');
+                    btn.style.color = '#ff4d4f';
+                    setTimeout(() => { btn.classList.remove('copied'); btn.style.color = ''; }, 1500);
+                });
+            }
+
             // ── 查询 ──────────────────────────────────────
             function askQuick(question, intent) {
                 input.value = question;
@@ -333,7 +403,7 @@ async def index():
                 const welcome = chatBox.querySelector('.welcome');
                 if (welcome) welcome.remove();
 
-                addMessage('user', escapeHtml(q));
+                addMessage('user', escapeHtml(q), '', q);
                 input.value = '';
                 input.disabled = true;
                 sendBtn.disabled = true;
@@ -346,7 +416,7 @@ async def index():
                         body: JSON.stringify({ question: q, session_id: activeSessionId, intent: intent })
                     });
                     const data = await res.json();
-                    addMessage('assistant', formatResult(data));
+                    addMessage('assistant', formatResult(data), '', assistantRawText(data));
                     // 刷新侧边栏列表
                     loadSessionList();
                 } catch (e) {
