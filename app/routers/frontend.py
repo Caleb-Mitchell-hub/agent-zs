@@ -17,6 +17,21 @@ async def index():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>AI 智能助手</title>
         <style>
+            :root {
+                --primary: #1890ff;
+                --primary-hover: #40a9ff;
+                --primary-dark: #096dd9;
+                --primary-soft: #e6f7ff;
+                --success: #52c41a;
+                --warning: #fa8c16;
+                --danger: #ff4d4f;
+                --surface: #ffffff;
+                --border: #e8e8e8;
+                --text: #262626;
+                --text-secondary: #8c8c8c;
+                --text-muted: #bfbfbf;
+                --radius: 8px;
+            }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; }
 
@@ -40,6 +55,73 @@ async def index():
             .session-item:hover .del-btn { visibility: visible; }
             .session-item .del-btn:hover { background: #fff2f0; color: #ff4d4f; }
             .no-sessions { padding: 32px 16px; text-align: center; color: #bbb; font-size: 13px; }
+
+            /* ── 任务区 ── */
+            .task-panel { border-top: 1px solid #e8e8e8; max-height: 45%; display: flex; flex-direction: column; }
+            .task-panel .task-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; flex-shrink: 0; }
+            .task-panel .task-header span { font-size: 13px; color: #333; font-weight: 500; }
+            .task-panel .task-header #taskCount { font-size: 11px; color: #999; font-weight: normal; }
+            .task-tabs { display: flex; padding: 0 12px 8px; gap: 4px; flex-shrink: 0; }
+            .task-tab { flex: 1; padding: 6px 0; text-align: center; font-size: 12px; border: 1px solid #e8e8e8; border-radius: 6px; cursor: pointer; color: #666; }
+            .task-tab.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+            .task-list { overflow-y: auto; padding: 0 8px 8px; flex: 1; }
+            .task-list::-webkit-scrollbar { width: 4px; }
+            .task-list::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 2px; }
+            .task-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+            .task-item:hover { background: #f5f5f5; }
+            .task-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+            .task-item .dot.pending { background: var(--primary); }
+            .task-item .dot.doing { background: var(--warning); }
+            .task-item .dot.done { background: var(--success); }
+            .task-item .dot.overdue { background: var(--danger); }
+
+            /* ── 工作记录（日历视图）── */
+            .calendar-area { flex: 1; overflow-y: auto; padding: 16px 20px; }
+            .cal-wrap { max-width: 860px; margin: 0 auto; }
+            .cal-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+            .cal-nav .nav-btn { width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 14px; transition: all .15s; }
+            .cal-nav .nav-btn:hover { color: var(--primary); border-color: var(--primary); }
+            .cal-nav .cal-title { font-size: 14px; font-weight: 500; min-width: 108px; text-align: center; }
+            .cal-nav select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: var(--surface); outline: none; color: var(--text); }
+            .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+            .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; border-left: 3px solid var(--primary); }
+            .stat-card .num { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.1; }
+            .stat-card .lbl { font-size: 12px; color: var(--text-secondary); margin-top: 5px; }
+            .stat-card.done { border-left-color: var(--success); }
+            .stat-card.created { border-left-color: var(--primary); }
+            .stat-card.active { border-left-color: var(--warning); }
+            .stat-card.rate { border-left-color: #722ed1; }
+            .cal { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+            .cal-weekhead { display: grid; grid-template-columns: repeat(7, 1fr); background: #fafafa; border-bottom: 1px solid var(--border); }
+            .cal-weekhead span { text-align: center; font-size: 11px; color: var(--text-secondary); padding: 8px 0; }
+            .cal-weekhead .wk { color: var(--danger); }
+            .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+            .cal-cell { min-height: 76px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px 8px; cursor: pointer; position: relative; transition: outline .1s; background: #fff; }
+            .cal-cell:nth-child(7n) { border-right: none; }
+            .cal-cell:hover { outline: 2px solid var(--primary); outline-offset: -2px; z-index: 1; }
+            .cal-cell.other { background: #fafafa; }
+            .cal-cell .day-num { font-size: 12px; color: var(--text-secondary); width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+            .cal-cell.today .day-num { color: #fff; background: var(--primary); font-weight: 500; }
+            .cal-cell .cell-stats { display: flex; gap: 10px; margin-top: 8px; font-size: 11px; align-items: center; }
+            .cal-cell .c-done { color: #389e0d; font-weight: 600; }
+            .cal-cell .c-created { color: var(--primary); }
+            .cal-cell .c-done::before { content: '✓'; margin-right: 2px; font-size: 10px; }
+            .cal-cell .c-created::before { content: '+'; margin-right: 2px; font-size: 11px; }
+            .cal-detail { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; background: var(--surface); }
+            .cal-detail .d-head { font-size: 13px; font-weight: 500; margin-bottom: 8px; }
+            .cal-detail .d-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 12px; color: var(--text); border-bottom: 1px dashed var(--border); }
+            .cal-detail .d-item:last-child { border-bottom: none; }
+            .cal-detail .d-item .d-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+            .cal-detail .d-item .d-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .cal-detail .d-item .d-time { font-size: 11px; color: var(--text-muted); }
+            .cal-detail .d-empty { font-size: 12px; color: var(--text-muted); padding: 4px 0; }
+            .year-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+            .mini-cal { border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+            .mini-cal .mc-title { font-size: 12px; font-weight: 500; text-align: center; margin-bottom: 8px; }
+            .mini-cal .mc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+            .mini-cal .mc-cell { aspect-ratio: 1; border-radius: 2px; background: #ebedf0; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #999; }
+            .mini-cal .mc-cell.has { background: var(--primary-soft); color: var(--primary-dark); font-weight: 600; }
+            .mini-cal .mc-cell.today { background: var(--primary); color: #fff; }
 
             /* ── 主区域 ── */
             .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -111,15 +193,32 @@ async def index():
             <div class="session-list" id="sessionList">
                 <div class="no-sessions">加载中...</div>
             </div>
+            <div class="task-panel" id="taskPanel">
+                <div class="task-header" onclick="toggleTaskPanel()">
+                    <span>任务列表 <span id="taskCount"></span></span><span id="taskArrow">▾</span>
+                </div>
+                <div class="task-tabs" id="taskTabs">
+                    <div class="task-tab active" data-filter="all" onclick="switchTaskTab('all')">全部</div>
+                    <div class="task-tab" data-filter="done" onclick="switchTaskTab('done')">已完成</div>
+                    <div class="task-tab" data-filter="pending" onclick="switchTaskTab('pending')">待办</div>
+                    <div class="task-tab" data-filter="doing" onclick="switchTaskTab('doing')">处理中</div>
+                </div>
+                <input type="text" id="taskSearch" placeholder="搜索任务..." oninput="loadTasks()" style="margin:0 12px 6px;padding:6px 10px;border:1px solid #e8e8e8;border-radius:6px;font-size:12px;">
+                <div class="task-list" id="taskList"></div>
+            </div>
         </div>
 
         <!-- 主区域 -->
         <div class="main">
             <div class="topbar">
                 <h1>AI 智能助手</h1>
-                <span class="user-info"><span id="userNameDisplay"></span> | <a onclick="logout()">退出</a></span>
+                <span class="user-info">
+                    <a onclick="switchMainView('chat')">聊天</a> |
+                    <a onclick="switchMainView('calendar')">工作记录<span id="remindBadge" style="display:none;background:#fff;color:#ff4d4f;border-radius:8px;font-size:10px;padding:0 5px;margin-left:4px;font-weight:600;">提醒</span></a> |
+                    <span id="userNameDisplay"></span> | <a onclick="logout()">退出</a>
+                </span>
             </div>
-            <div class="chat-area">
+            <div class="chat-area" id="chatArea">
                 <div class="quick-actions">
                     <button class="quick-btn" onclick="askQuick('查询所有仓库的库存', 'query')">查询库存</button>
                     <button class="quick-btn" onclick="askQuick('统计本月销售额', 'query')">本月销售</button>
@@ -133,6 +232,37 @@ async def index():
                 <div class="input-area">
                     <input type="text" id="input" placeholder="输入你的问题..." onkeypress="if(event.key==='Enter')send()">
                     <button id="sendBtn" onclick="send()">发送</button>
+                </div>
+            </div>
+            <div class="calendar-area" id="calPanel" style="display:none">
+                <div class="cal-wrap">
+                    <div class="cal-nav">
+                        <button class="nav-btn" onclick="calShift(-1)">‹</button>
+                        <span class="cal-title" id="calTitle"></span>
+                        <button class="nav-btn" onclick="calShift(1)">›</button>
+                        <select id="calView" onchange="switchCalView(this.value)">
+                            <option value="month">月视图</option>
+                            <option value="year">年视图</option>
+                        </select>
+                    </div>
+                    <div class="stat-cards">
+                        <div class="stat-card done"><div class="num" id="kDone">0</div><div class="lbl">本月完成</div></div>
+                        <div class="stat-card created"><div class="num" id="kCreated">0</div><div class="lbl">本月创建</div></div>
+                        <div class="stat-card active"><div class="num" id="kActive">0</div><div class="lbl">活跃天数</div></div>
+                        <div class="stat-card rate"><div class="num" id="kRate">—</div><div class="lbl">完成率</div></div>
+                    </div>
+                    <div id="calMonth">
+                        <div class="cal">
+                            <div class="cal-weekhead">
+                                <span class="wk">日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span class="wk">六</span>
+                            </div>
+                            <div class="cal-grid" id="calGrid"></div>
+                        </div>
+                        <div class="cal-detail" id="calDetail"></div>
+                    </div>
+                    <div id="calYear" style="display:none">
+                        <div class="year-grid" id="yearGrid"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -495,6 +625,206 @@ async def index():
                 }
             }
 
+            // ── 任务管理 ──────────────────────────────────
+            const API_TASKS = '/api/v1/tasks';
+            let taskFilter = 'all';
+            let currentTasks = [];
+            let calYear = new Date().getFullYear(), calMonth = new Date().getMonth();
+
+            async function loadTasks() {
+                const q = document.getElementById('taskSearch').value.trim();
+                const res = await fetch(`${API_TASKS}?filter=${taskFilter}&q=${encodeURIComponent(q)}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                renderTaskList(data.tasks || []);
+            }
+            function renderTaskList(tasks) {
+                currentTasks = tasks;
+                const el = document.getElementById('taskList');
+                document.getElementById('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
+                el.innerHTML = tasks.length ? tasks.map(t => `
+                    <div class="task-item" onclick="taskMenu(${t.task_id})">
+                        <span class="dot ${t.overdue ? 'overdue' : t.status}"></span>
+                        <span style="flex:1;font-size:12px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.title)}</span>
+                    </div>`).join('') : '<div style="padding:20px;text-align:center;color:#bbb;font-size:12px;">暂无任务</div>';
+            }
+            function switchTaskTab(filter) {
+                taskFilter = filter;
+                document.querySelectorAll('.task-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
+                loadTasks();
+            }
+            function toggleTaskPanel() {
+                const list = document.getElementById('taskList');
+                const hidden = list.style.display === 'none';
+                list.style.display = hidden ? '' : 'none';
+                document.getElementById('taskArrow').textContent = hidden ? '▾' : '▸';
+            }
+            async function taskMenu(id) {
+                // 点击任务：在「待办」与「已完成」之间切换状态
+                const t = currentTasks.find(x => x.task_id === id);
+                if (!t) return;
+                const next = t.status === 'done' ? 'pending' : 'done';
+                try {
+                    await fetch(`${API_TASKS}/${id}`, {
+                        method: 'PATCH',
+                        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: next })
+                    });
+                    loadTasks();
+                } catch (e) { console.error('切换任务状态失败', e); }
+            }
+
+            // ── 工作记录（日历视图）──────────────────────
+            function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+            function switchMainView(v) {
+                document.getElementById('chatArea').style.display = v === 'chat' ? '' : 'none';
+                document.getElementById('calPanel').style.display = v === 'calendar' ? '' : 'none';
+                if (v === 'calendar') renderMonth();
+            }
+            async function renderMonth() {
+                document.getElementById('calTitle').textContent = calYear + '年' + (calMonth + 1) + '月';
+                const res = await fetch(`${API_TASKS}/worklog?year=${calYear}&month=${calMonth + 1}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const d = await res.json();
+                const done = d.done_by_day || {};
+                const created = d.created_by_day || {};
+                const firstDow = new Date(calYear, calMonth, 1).getDay();
+                const dim = new Date(calYear, calMonth + 1, 0).getDate();
+                const dimPrev = new Date(calYear, calMonth, 0).getDate();
+                const now = new Date();
+                let cells = '';
+                for (let i = 0; i < 42; i++) {
+                    let y = calYear, m = calMonth, d, other = false;
+                    if (i < firstDow) {
+                        m = calMonth - 1; if (m < 0) { m = 11; y--; }
+                        d = dimPrev - firstDow + 1 + i; other = true;
+                    } else if (i >= firstDow + dim) {
+                        m = calMonth + 1; if (m > 11) { m = 0; y++; }
+                        d = i - firstDow - dim + 1; other = true;
+                    } else {
+                        d = i - firstDow + 1;
+                    }
+                    const key = y + '-' + pad2(m + 1) + '-' + pad2(d);
+                    const dn = done[key] || 0, cn = created[key] || 0;
+                    const isToday = y === now.getFullYear() && m === now.getMonth() && d === now.getDate();
+                    cells += '<div class="cal-cell' + (other ? ' other' : '') + (isToday ? ' today' : '') + '" onclick="showDay(\\'' + key + '\\')">'
+                           + '<span class="day-num">' + d + '</span>'
+                           + (other ? '' : '<div class="cell-stats"><span class="c-done">' + dn + '</span><span class="c-created">' + cn + '</span></div>')
+                           + '</div>';
+                }
+                document.getElementById('calGrid').innerHTML = cells;
+                document.getElementById('kDone').textContent = d.total_done || 0;
+                document.getElementById('kCreated').textContent = d.total_created || 0;
+                document.getElementById('kActive').textContent = d.active_days || 0;
+                document.getElementById('kRate').textContent = d.total_created ? Math.round(d.rate * 100) + '%' : '—';
+            }
+            async function showDay(dateStr) {
+                const el = document.getElementById('calDetail');
+                el.innerHTML = '<div class="d-empty">加载中...</div>';
+                try {
+                    const res = await fetch(`${API_TASKS}/worklog/day?date=${dateStr}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const d = await res.json();
+                    let items = '';
+                    (d.done_tasks || []).forEach(t => {
+                        items += '<div class="d-item"><span class="d-dot" style="background:var(--success)"></span><span class="d-name">' + escapeHtml(t.title) + '</span><span class="d-time">✓ 完成</span></div>';
+                    });
+                    (d.created_tasks || []).forEach(t => {
+                        items += '<div class="d-item"><span class="d-dot" style="background:var(--primary)"></span><span class="d-name">' + escapeHtml(t.title) + '</span><span class="d-time">＋ 创建</span></div>';
+                    });
+                    if (!items) items = '<div class="d-empty">当日无工作记录</div>';
+                    el.innerHTML = '<div class="d-head">' + dateStr + ' · 工作明细</div>' + items;
+                } catch (e) {
+                    el.innerHTML = '<div class="d-empty">加载失败</div>';
+                }
+            }
+            function calShift(delta) {
+                calMonth += delta;
+                if (calMonth < 0) { calMonth = 11; calYear--; }
+                if (calMonth > 11) { calMonth = 0; calYear++; }
+                renderMonth();
+            }
+            function switchCalView(v) {
+                document.getElementById('calMonth').style.display = v === 'month' ? '' : 'none';
+                document.getElementById('calYear').style.display = v === 'year' ? '' : 'none';
+                if (v === 'year') renderYear();
+            }
+            async function renderYear() {
+                const year = calYear;
+                const datas = await Promise.all(Array.from({ length: 12 }, (_, m) =>
+                    fetch(`${API_TASKS}/worklog?year=${year}&month=${m + 1}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json())
+                ));
+                const now = new Date();
+                let html = '';
+                for (let m = 0; m < 12; m++) {
+                    const done = datas[m].done_by_day || {};
+                    const firstDow = new Date(year, m, 1).getDay();
+                    const dim = new Date(year, m + 1, 0).getDate();
+                    let cells = '';
+                    for (let i = 0; i < firstDow; i++) cells += '<div class="mc-cell" style="background:transparent"></div>';
+                    for (let d = 1; d <= dim; d++) {
+                        const key = year + '-' + pad2(m + 1) + '-' + pad2(d);
+                        const dn = done[key] || 0;
+                        const isToday = year === now.getFullYear() && m === now.getMonth() && d === now.getDate();
+                        cells += '<div class="mc-cell' + (dn ? ' has' : '') + (isToday ? ' today' : '') + '">' + d + '</div>';
+                    }
+                    html += '<div class="mini-cal"><div class="mc-title">' + (m + 1) + '月</div><div class="mc-grid">' + cells + '</div></div>';
+                }
+                document.getElementById('yearGrid').innerHTML = html;
+            }
+
+            // ── SSE 提醒 ──────────────────────────────────
+            // 注意：后端 /tasks/events 依赖 Authorization 头鉴权，原生 EventSource 无法携带自定义头，
+            // 故用 fetch 流式读取 SSE（与 send() 一致），而不是 brief 里的 new EventSource(?token=)。
+            async function initTaskEvents() {
+                try {
+                    const res = await fetch(API_TASKS + '/events', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (!res.ok || !res.body) return;
+                    const reader = res.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buf = '';
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buf += decoder.decode(value, { stream: true });
+                        let idx;
+                        while ((idx = buf.indexOf('\\n\\n')) !== -1) {
+                            const raw = buf.slice(0, idx);
+                            buf = buf.slice(idx + 2);
+                            const dataLine = raw.split('\\n').find(l => l.indexOf('data:') === 0);
+                            if (!dataLine) continue;
+                            let ev;
+                            try { ev = JSON.parse(dataLine.slice(5).trim()); } catch (e) { continue; }
+                            if (ev.type === 'task_remind') showRemind(ev.message);
+                        }
+                    }
+                } catch (e) {
+                    console.error('SSE 提醒订阅失败', e);
+                }
+            }
+            function showRemind(msg) {
+                // 顶部「工作记录」旁角标
+                const badge = document.getElementById('remindBadge');
+                if (badge) badge.style.display = 'inline';
+                // 右下角提醒气泡
+                let el = document.getElementById('remindToast');
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = 'remindToast';
+                    el.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#fff;border:1px solid #e8e8e8;box-shadow:0 4px 16px rgba(0,0,0,.12);border-radius:8px;padding:12px 16px;font-size:13px;color:#333;max-width:320px;z-index:999;';
+                    document.body.appendChild(el);
+                }
+                el.textContent = '⏰ ' + msg;
+                el.style.display = 'block';
+                clearTimeout(el._t);
+                el._t = setTimeout(() => { el.style.display = 'none'; }, 5000);
+            }
+
             // ── 初始化 ────────────────────────────────────
             (function init() {
                 // 恢复上次活跃会话
@@ -504,6 +834,10 @@ async def index():
                     openSession(saved);
                 }
                 loadSessionList();
+                // 任务面板 + 日历 + SSE 提醒
+                loadTasks();
+                renderMonth();
+                initTaskEvents();
             })();
         </script>
     </body>
