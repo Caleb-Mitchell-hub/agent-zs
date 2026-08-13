@@ -74,7 +74,7 @@ def test_empty_input_returns_none():
 def test_all_rule_keywords_each_match_their_intent():
     """规则表完整性：每个关键词独立出现时，只命中自己的意图"""
     for intent, keywords in INTENT_RULES:
-        assert intent in ["query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat"]
+        assert intent in ["query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat", "task_plan"]
         assert len(keywords) > 0
         for kw in keywords:
             result = planner._classify_by_rules(kw)
