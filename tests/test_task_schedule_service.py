@@ -6,7 +6,7 @@ from app.tasks.service import (
     create_task, create_schedule, delete_schedule, list_pending_schedules,
     mark_schedule_fired, advance_task, get_task,
     create_leave, list_leaves, delete_leave, get_worklog, get_workday_sets,
-    get_worklog_day,
+    get_worklog_day, _execute_write,
 )
 
 TEST_USER = 900001
@@ -113,3 +113,21 @@ async def test_worklog_day():
     detail = await get_worklog_day(TEST_USER, day)
     assert any(d["task_id"] == t1["task_id"] for d in detail["done_tasks"])
     assert any(c["task_id"] == t1["task_id"] for c in detail["created_tasks"])
+
+
+@pytest.mark.asyncio
+async def test_worklog_cross_month_strict_boundary():
+    # 上月创建、本月完成的任务：计入 total_done，不计入 total_created
+    await _execute_write(
+        "INSERT INTO user_tasks (user_id, title, status, created_at, completed_at) "
+        "VALUES (:uid, :title, 'done', :created, :completed)",
+        {
+            "uid": TEST_USER,
+            "title": "跨月完成",
+            "created": "2026-07-20 10:00:00",
+            "completed": "2026-08-10 10:00:00",
+        },
+    )
+    log = await get_worklog(TEST_USER, 2026, 8)
+    assert log["total_done"] == 1
+    assert log["total_created"] == 0

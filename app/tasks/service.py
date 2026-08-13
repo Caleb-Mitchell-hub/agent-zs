@@ -243,12 +243,14 @@ async def get_worklog(user_id: int, year: int, month: int) -> dict:
     rows = await _execute_read(
         """
         SELECT
-            SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) AS total_done,
-            SUM(CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END) AS total_created
+            SUM(CASE WHEN completed_at >= :start AND completed_at < :end THEN 1 ELSE 0 END) AS total_done,
+            SUM(CASE WHEN created_at >= :start AND created_at < :end THEN 1 ELSE 0 END) AS total_created
         FROM user_tasks
         WHERE user_id = :uid
-          AND (created_at >= :start OR completed_at >= :start)
-          AND (created_at < :end OR completed_at < :end)
+          AND (
+              (created_at >= :start AND created_at < :end)
+              OR (completed_at >= :start AND completed_at < :end)
+          )
         """,
         {"uid": user_id, "start": start, "end": end},
     )
