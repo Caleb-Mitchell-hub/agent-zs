@@ -127,3 +127,24 @@ async def test_worklog_day_endpoint(ac, auth_headers):
     data = r2.json()
     assert "done_tasks" in data and "created_tasks" in data
     assert any(d["task_id"] == task_id for d in data["done_tasks"])
+
+
+@pytest.mark.asyncio
+async def test_task_plan_batch_create(ac, auth_headers):
+    items = [
+        {"title": "规划子任务A", "date": "2099-01-01", "time": "09:00"},
+        {"title": "规划子任务B", "date": "2099-01-02", "time": None},
+        {"title": "规划子任务C", "date": "2099-01-03", "time": "10:30"},
+    ]
+    r = await ac.post("/api/v1/tasks/plan", json={"items": items}, headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "ok"
+    assert data["count"] == 3
+    assert len(data["tasks"]) == 3
+
+    r2 = await ac.get("/api/v1/tasks?filter=all", headers=auth_headers)
+    assert r2.status_code == 200
+    titles = {t["title"] for t in r2.json()["tasks"]}
+    for it in items:
+        assert it["title"] in titles

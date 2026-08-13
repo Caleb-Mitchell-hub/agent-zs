@@ -1,12 +1,13 @@
 """任务管理器路由（SSE 订阅 + 任务 CRUD / 定时任务 / 请假 / 工作记录）"""
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.gateway.auth import verify_token
 from app.tasks import service
-from app.tasks.schemas import TaskCreate, TaskUpdate, ScheduleCreate, LeaveCreate
+from app.tasks.schemas import TaskCreate, TaskUpdate, TaskPlanCreate, ScheduleCreate, LeaveCreate
 
 router = APIRouter()
 
@@ -49,6 +50,20 @@ async def create_task(body: TaskCreate, user_info: dict = Depends(verify_token))
         user_info["user_id"], body.title, body.deadline, body.priority
     )
     return {"status": "ok", **task}
+
+
+@router.post("/tasks/plan")
+async def create_task_plan(body: TaskPlanCreate, user_info: dict = Depends(verify_token)):
+    """批量落库任务规划子任务（平铺落库，不建父任务）"""
+    created = []
+    for item in body.items:
+        deadline = (
+            datetime.strptime(f"{item.date} {item.time}", "%Y-%m-%d %H:%M")
+            if item.time else None
+        )
+        task = await service.create_task(user_info["user_id"], item.title, deadline)
+        created.append(task)
+    return {"status": "ok", "count": len(created), "tasks": created}
 
 
 @router.patch("/tasks/{task_id}")

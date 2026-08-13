@@ -162,6 +162,21 @@ async def index():
             .message .copy-btn:hover { color: #1890ff; background: #f0f0f0; }
             .message .copy-btn.copied { color: #52c41a; }
             .error-msg { color: #ff4d4f; background: #fff2f0; border: 1px solid #ffccc7; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+            /* ── 任务规划预览（确认落库）── */
+            .task-plan-preview { margin-top: 6px; }
+            .task-plan-preview .plan-msg { font-size: 13px; color: #333; margin-bottom: 8px; }
+            .plan-list { max-height: 240px; overflow-y: auto; border: 1px solid #e8e8e8; border-radius: 6px; padding: 4px 6px; }
+            .plan-item { display: flex; align-items: center; gap: 8px; padding: 5px 4px; font-size: 12px; color: #333; }
+            .plan-item .plan-check { flex-shrink: 0; cursor: pointer; }
+            .plan-item .plan-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .plan-item .plan-date { font-size: 11px; color: #999; flex-shrink: 0; }
+            .plan-actions { display: flex; gap: 8px; margin-top: 10px; }
+            .plan-confirm-btn { background: #1890ff; color: white; border: none; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+            .plan-confirm-btn:hover { background: #40a9ff; }
+            .plan-confirm-btn:disabled { background: #d9d9d9; cursor: not-allowed; }
+            .plan-cancel-btn { background: #fff; color: #666; border: 1px solid #d9d9d9; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+            .plan-cancel-btn:hover { border-color: #1890ff; color: #1890ff; }
+            .plan-success { font-size: 13px; color: #52c41a; padding: 7px 0; }
             .quick-actions { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; flex-shrink: 0; }
             .quick-btn { background: #fff; border: 1px solid #d9d9d9; padding: 6px 14px; border-radius: 16px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
             .quick-btn:hover { border-color: #1890ff; color: #1890ff; }
@@ -481,6 +496,7 @@ async def index():
             }
 
             function formatResult(data) {
+                if (data.preview === true) return formatTaskPlanPreview(data);
                 if (data.status === 'error' || data.status === 'clarify') {
                     return '<div class="error-msg">' + escapeHtml(data.message || '抱歉，无法处理您的请求') + '</div>';
                 }
@@ -493,6 +509,13 @@ async def index():
                 if (!data) return '';
                 if (data.status === 'error' || data.status === 'clarify') {
                     return data.message || '';
+                }
+                if (data.preview === true) {
+                    const items = data.data || [];
+                    let txt = data.message || '';
+                    if (txt) txt += '\\n\\n';
+                    txt += items.map(function (it) { return '- ' + it.title; }).join('\\n');
+                    return txt;
                 }
                 if (!data.data || data.data.length === 0) {
                     return data.message || '';
@@ -509,6 +532,68 @@ async def index():
                     md += '| ' + keys.map(k => cell(r[k])).join(' | ') + ' |\\n';
                 });
                 return md;
+            }
+
+            // ── 任务规划预览（确认落库）──────────────────
+            function formatTaskPlanPreview(data) {
+                const items = data.data || [];
+                const msg = data.message || '';
+                const itemsJsonAttr = JSON.stringify(items).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+                let html = '<div class="task-plan-preview">';
+                if (msg) html += '<div class="plan-msg">' + escapeHtml(msg) + '</div>';
+                html += '<div class="plan-list">';
+                items.forEach(function (it, i) {
+                    html += '<label class="plan-item">' +
+                        '<input type="checkbox" class="plan-check" checked data-idx="' + i + '">' +
+                        '<span class="plan-title">' + escapeHtml(it.title) + '</span>' +
+                        '<span class="plan-date">' + escapeHtml(it.date + (it.time ? ' ' + it.time : '')) + '</span>' +
+                        '</label>';
+                });
+                html += '</div>';
+                html += '<div class="plan-actions">' +
+                    '<button class="plan-confirm-btn" data-items="' + itemsJsonAttr + '" onclick="confirmTaskPlan(this)">✅ 确认落库</button>' +
+                    '<button class="plan-cancel-btn" onclick="cancelTaskPlan(this)">取消</button>' +
+                    '</div>';
+                html += '</div>';
+                return html;
+            }
+
+            async function confirmTaskPlan(btn, items) {
+                items = items || JSON.parse(btn.dataset.items || '[]');
+                const box = btn.closest('.task-plan-preview');
+                const checked = [];
+                box.querySelectorAll('.plan-check:checked').forEach(function (cb) {
+                    checked.push(items[parseInt(cb.dataset.idx, 10)]);
+                });
+                if (checked.length === 0) {
+                    alert('请至少勾选一个子任务');
+                    return;
+                }
+                btn.disabled = true;
+                try {
+                    const res = await fetch(API_TASKS + '/plan', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ items: checked })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'ok') {
+                        box.querySelector('.plan-actions').innerHTML = '<span class="plan-success">✅ 已创建 ' + data.count + ' 个子任务</span>';
+                        loadTasks();
+                    } else {
+                        alert('落库失败：' + (data.message || ('HTTP ' + res.status)));
+                        btn.disabled = false;
+                    }
+                } catch (e) {
+                    alert('落库失败：' + e.message);
+                    btn.disabled = false;
+                }
+            }
+
+            function cancelTaskPlan(btn) {
+                const box = btn.closest('.task-plan-preview');
+                const actions = box.querySelector('.plan-actions');
+                if (actions) actions.style.display = 'none';
             }
 
             // 兼容非 HTTPS（http://ip:port 下 navigator.clipboard 不可用，用 execCommand 兜底）

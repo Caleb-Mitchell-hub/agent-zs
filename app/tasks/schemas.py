@@ -16,6 +16,16 @@ class TaskUpdate(BaseModel):
     priority: int | None = None
 
 
+class TaskPlanItem(BaseModel):
+    title: str
+    date: str          # "YYYY-MM-DD"
+    time: str | None = None  # "HH:MM" 或 None
+
+
+class TaskPlanCreate(BaseModel):
+    items: list[TaskPlanItem]
+
+
 class ScheduleCreate(BaseModel):
     trigger_time: datetime
     action: str  # remind / remind_advance
