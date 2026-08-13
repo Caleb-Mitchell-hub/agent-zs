@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS holidays (
     day DATE NOT NULL COMMENT '日期',
     type VARCHAR(20) NOT NULL COMMENT 'holiday/workday',
     note VARCHAR(100) NULL COMMENT '备注',
-    INDEX idx_day (day)
+    UNIQUE KEY uk_day (day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='公共节假日表';
 
 -- 4. 个人请假表
