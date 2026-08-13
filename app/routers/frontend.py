@@ -784,7 +784,13 @@ async def index():
                     const res = await fetch(API_TASKS + '/events', {
                         headers: { 'Authorization': 'Bearer ' + token }
                     });
-                    if (!res.ok || !res.body) return;
+                    // 401 鉴权失败（token 无效/过期）：停止重连，交给登录流程
+                    if (res.status === 401) return;
+                    if (!res.ok || !res.body) {
+                        // 其他异常（如 5xx）：退避重连
+                        setTimeout(initTaskEvents, 3000);
+                        return;
+                    }
                     const reader = res.body.getReader();
                     const decoder = new TextDecoder();
                     let buf = '';
@@ -803,8 +809,12 @@ async def index():
                             if (ev.type === 'task_remind') showRemind(ev.message);
                         }
                     }
+                    // 连接被服务端/网络中断（done=true）：退避重连
+                    setTimeout(initTaskEvents, 3000);
                 } catch (e) {
                     console.error('SSE 提醒订阅失败', e);
+                    // 网络异常：退避重连
+                    setTimeout(initTaskEvents, 3000);
                 }
             }
             function showRemind(msg) {
