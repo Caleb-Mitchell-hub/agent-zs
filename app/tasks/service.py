@@ -167,6 +167,19 @@ async def list_pending_schedules() -> list[dict]:
     )
 
 
+async def list_missed_schedules() -> list[dict]:
+    """停机期间错过的定时任务（trigger_time 已到但未触发），供调度器启动时补发。"""
+    return await _execute_read(
+        """
+        SELECT ts.schedule_id, ts.task_id, ts.user_id, ts.trigger_time, ts.action, ts.advance_to,
+               ts.fired, ut.title
+        FROM task_schedules ts
+        JOIN user_tasks ut ON ut.task_id = ts.task_id
+        WHERE ts.fired = 0 AND ts.trigger_time <= NOW()
+        """
+    )
+
+
 async def mark_schedule_fired(schedule_id: int) -> None:
     """标记定时任务已触发。"""
     await _execute_write(

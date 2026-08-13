@@ -3,7 +3,7 @@ import asyncio
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.tasks.service import list_pending_schedules, mark_schedule_fired, advance_task
+from app.tasks.service import list_pending_schedules, list_missed_schedules, mark_schedule_fired, advance_task
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class TaskScheduler:
         self._subscribers: dict[int, set[asyncio.Queue]] = {}
 
     async def start(self):
-        """启动调度器并加载未触发任务"""
+        """启动调度器并加载未触发任务，补发停机期间错过的提醒"""
         if self._scheduler is not None:
             return
         self._scheduler = AsyncIOScheduler()
@@ -25,6 +25,12 @@ class TaskScheduler:
         for s in scheds:
             self._add_job(s)
         logger.info(f"任务调度器启动，加载 {len(scheds)} 个定时任务")
+        # 补发停机期间到点但未触发的定时任务
+        missed = await list_missed_schedules()
+        for s in missed:
+            await self._fire(s)
+        if missed:
+            logger.warning(f"补发 {len(missed)} 个停机期间错过的定时任务提醒")
 
     async def stop(self):
         if self._scheduler is not None:

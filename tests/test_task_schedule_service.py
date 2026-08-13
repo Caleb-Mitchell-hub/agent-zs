@@ -1,10 +1,10 @@
 """定时任务 + 请假 + 工作记录聚合 service 集成测试（连真实库，专用 user_id 隔离 + 清理）"""
 import pytest
 import pytest_asyncio
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from app.tasks.service import (
     create_task, create_schedule, delete_schedule, list_pending_schedules,
-    mark_schedule_fired, advance_task, get_task,
+    list_missed_schedules, mark_schedule_fired, advance_task, get_task,
     create_leave, list_leaves, delete_leave, get_worklog, get_workday_sets,
     get_worklog_day, _execute_write,
 )
@@ -72,6 +72,21 @@ async def test_mark_fired_and_advance():
 
 
 @pytest.mark.asyncio
+async def test_list_missed_schedules():
+    task = await create_task(TEST_USER, "错过提醒任务")
+    past = datetime.now() - timedelta(days=1)
+    sched = await create_schedule(TEST_USER, task["task_id"], past, "remind")
+    missed = await list_missed_schedules()
+    assert any(
+        s["schedule_id"] == sched["schedule_id"] and s["title"] == "错过提醒任务"
+        for s in missed
+    )
+    # 错过的记录不应出现在 pending（待触发）列表中
+    pending = await list_pending_schedules()
+    assert all(s["schedule_id"] != sched["schedule_id"] for s in pending)
+
+
+@pytest.mark.asyncio
 async def test_leave_crud():
     leave = await create_leave(TEST_USER, date(2026, 8, 14), "年假")
     assert leave["leave_id"] > 0
@@ -97,7 +112,8 @@ async def test_worklog_aggregation():
     t1 = await create_task(TEST_USER, "已完成任务")
     await advance_task(t1["task_id"], "done")
     await create_task(TEST_USER, "待办任务")
-    log = await get_worklog(TEST_USER, 2026, 8)
+    now = datetime.now()
+    log = await get_worklog(TEST_USER, now.year, now.month)
     assert log["total_done"] >= 1
     assert log["total_created"] >= 2
     assert 0 <= log["rate"] <= 1
@@ -118,16 +134,19 @@ async def test_worklog_day():
 @pytest.mark.asyncio
 async def test_worklog_cross_month_strict_boundary():
     # 上月创建、本月完成的任务：计入 total_done，不计入 total_created
+    now = datetime.now()
+    this_month_first = datetime(now.year, now.month, 1)
+    last_month_last = this_month_first - timedelta(days=1)
     await _execute_write(
         "INSERT INTO user_tasks (user_id, title, status, created_at, completed_at) "
         "VALUES (:uid, :title, 'done', :created, :completed)",
         {
             "uid": TEST_USER,
             "title": "跨月完成",
-            "created": "2026-07-20 10:00:00",
-            "completed": "2026-08-10 10:00:00",
+            "created": last_month_last.strftime("%Y-%m-%d %H:%M:%S"),
+            "completed": this_month_first.strftime("%Y-%m-%d %H:%M:%S"),
         },
     )
-    log = await get_worklog(TEST_USER, 2026, 8)
+    log = await get_worklog(TEST_USER, now.year, now.month)
     assert log["total_done"] == 1
     assert log["total_created"] == 0

@@ -148,3 +148,23 @@ async def test_task_plan_batch_create(ac, auth_headers):
     titles = {t["title"] for t in r2.json()["tasks"]}
     for it in items:
         assert it["title"] in titles
+
+
+@pytest.mark.asyncio
+async def test_update_task_invalid_status_rejected(ac, auth_headers):
+    r = await ac.post("/api/v1/tasks", json={"title": "枚举校验任务"}, headers=auth_headers)
+    task_id = r.json()["task_id"]
+    r2 = await ac.patch(f"/api/v1/tasks/{task_id}", json={"status": "banana"}, headers=auth_headers)
+    assert r2.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_schedule_invalid_action_rejected(ac, auth_headers):
+    r = await ac.post("/api/v1/tasks", json={"title": "枚举校验定时"}, headers=auth_headers)
+    task_id = r.json()["task_id"]
+    r2 = await ac.post(
+        f"/api/v1/tasks/{task_id}/schedule",
+        json={"trigger_time": datetime(2099, 1, 1, 9, 0).isoformat(), "action": "xxx"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 422
