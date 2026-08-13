@@ -79,6 +79,11 @@ def test_route_by_intent_time():
     assert langgraph_flow.route_by_intent(state) == "time_node"
 
 
+def test_route_by_intent_weather():
+    state = {"intent": "weather"}
+    assert langgraph_flow.route_by_intent(state) == "weather_node"
+
+
 def test_route_by_intent_unknown_defaults_data():
     state = {"intent": "unknown"}
     assert langgraph_flow.route_by_intent(state) == "data_node"

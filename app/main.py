@@ -42,15 +42,18 @@ async def lifespan(app: FastAPI):
     from app.tools.database_tool import DatabaseTool
     from app.tools.search_tool import SearchTool
     from app.tools.time_tool import TimeTool
+    from app.tools.weather_tool import WeatherTool
     from app.tools.report_templates import report_template_engine
 
     db_tool = DatabaseTool()
     search_tool = SearchTool()
     time_tool = TimeTool()
+    weather_tool = WeatherTool()
 
     tool_registry.register("query_tool", db_tool.execute, "查询数据库", permission_level="medium", risk_level="medium")
     tool_registry.register("knowledge_tool", search_tool.execute, "知识检索", permission_level="low", risk_level="low")
     tool_registry.register("time_tool", time_tool.execute, "实时时间查询", permission_level="low", risk_level="low")
+    tool_registry.register("weather_tool", weather_tool.execute, "实时天气查询", permission_level="low", risk_level="low")
     logger.info(f"工具注册完成: {len(tool_registry.list_tools())} 个工具")
 
     # 应用工具策略（从配置中心加载）

@@ -31,6 +31,12 @@ INTENT_RULES = [
         "几点", "几号", "星期几",
         "当前时间", "现在时间", "日历",
     ]),
+    # 天气（"天气怎么样"权重高，压过 knowledge 的"怎么"避免歧义；"多少度"压过 query 的"多少"）
+    ("weather", [
+        "天气怎么样", "天气", "气温", "温度", "多少度", "摄氏度",
+        "下雨", "下雪", "降温", "升温", "台风", "暴雨", "雾霾",
+        "阴天", "多云", "刮风", "晴朗", "降雨", "降雪",
+    ]),
     # 闲聊/问候
     ("chat", [
         "你好", "您好", "你是谁", "谢谢", "再见", "哈喽", "嗨",
@@ -71,7 +77,7 @@ INTENT_RULES = [
 _RULE_CONFIDENCE_RATIO = 2.0
 
 # 合法意图集合（LLM 输出校验白名单，防止脏数据透传到下游路由）
-VALID_INTENTS = {"query", "create", "update", "report", "knowledge", "memory", "time", "chat"}
+VALID_INTENTS = {"query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat"}
 
 # 意图分类 Prompt
 INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要根据对话上下文和当前用户输入判断其所属意图类别。
@@ -130,12 +136,20 @@ INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要�
   “当前日期”
   “星期一还是二”
 
+- weather：
+  用户询问天气、气温、是否下雨等实时天气信息。
+  示例：
+  “今天天气怎么样”
+  “北京明天会下雨吗”
+  “现在几度”
+  “上海热不热”
+
 - chat：
   闲聊、问候、自我介绍、非业务请求。
   示例：
   “你好”
   “你是谁”
-  “今天天气不错”
+  “最近怎么样”
 
 【判断要求】
 1. 必须结合对话上下文理解用户当前输入的真正意图。
@@ -145,7 +159,7 @@ INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要�
 5. 如果多个类别都符合，选择用户主要目的对应的类别。
 6. 输出必须严格匹配以下格式：
 
-query / create / update / report / knowledge / memory / time / chat
+query / create / update / report / knowledge / memory / time / weather / chat
 
 【对话历史】
 {conversation_history}

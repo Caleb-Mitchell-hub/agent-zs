@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""  # 嵌入 API 密钥
     embedding_model: str = "BAAI/bge-large-zh-v1.5"  # 嵌入模型名称
 
+    # 天气查询配置（和风天气 QWeather）
+    # 2025-04 起推行独立 API Host，公共域名已逐步停用，须配置控制台分配的独立 Host
+    qweather_api_key: str = ""  # 和风天气 API Key，来源：env QWEATHER_API_KEY
+    qweather_api_host: str = ""  # 独立 API Host，来源：env QWEATHER_API_HOST（控制台设置页获取，如 xxx.re.qweatherapi.com）
+
     # 查询沙箱配置
     sql_statement_timeout: int = 10  # 秒
     sql_max_rows: int = 1000

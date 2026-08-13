@@ -74,7 +74,7 @@ def test_empty_input_returns_none():
 def test_all_rule_keywords_each_match_their_intent():
     """规则表完整性：每个关键词独立出现时，只命中自己的意图"""
     for intent, keywords in INTENT_RULES:
-        assert intent in ["query", "create", "update", "report", "knowledge", "memory", "time", "chat"]
+        assert intent in ["query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat"]
         assert len(keywords) > 0
         for kw in keywords:
             result = planner._classify_by_rules(kw)
@@ -88,6 +88,14 @@ def test_time_intent_by_rules():
     assert planner._classify_by_rules("现在几点") == "time"
     assert planner._classify_by_rules("今天几号") == "time"
     assert planner._classify_by_rules("现在时间") == "time"
+
+
+def test_weather_intent_by_rules():
+    """天气类意图规则命中"""
+    assert planner._classify_by_rules("今天天气怎么样") == "weather"
+    assert planner._classify_by_rules("北京明天会下雨吗") == "weather"
+    # "温度"(2)+"多少度"(3)=5 vs query"多少"(2)，5/2=2.5 >= 2.0 → weather
+    assert planner._classify_by_rules("温度多少度") == "weather"
 
 
 # ============================================================
@@ -131,6 +139,16 @@ async def test_time_intent_no_llm_call():
     with patch("app.orchestrator.planner.llm_client.chat", mock_chat):
         result = await planner.classify_intent("现在几点")
     assert result == "time"
+    mock_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_weather_intent_no_llm_call():
+    """天气类意图规则直接命中"""
+    mock_chat = AsyncMock(return_value="garbage")
+    with patch("app.orchestrator.planner.llm_client.chat", mock_chat):
+        result = await planner.classify_intent("今天天气怎么样")
+    assert result == "weather"
     mock_chat.assert_not_called()
 
 

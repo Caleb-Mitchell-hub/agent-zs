@@ -26,6 +26,7 @@ from app.memory.extractor import memory_extractor
 from app.orchestrator.planner import planner
 from app.tools.follow_up_router import should_reuse_result, compose_reuse_reply
 from app.tools.time_tool import TimeTool
+from app.tools.weather_tool import WeatherTool
 from app.agents.data_agent import DataAgent
 from app.agents.write_agent import WriteAgent
 from app.agents.knowledge_agent import KnowledgeAgent
@@ -284,6 +285,54 @@ async def time_node(state: AgentState) -> dict:
     return {"result": result, "agent_name": "time_tool"}
 
 
+async def _extract_city(user_input: str) -> str:
+    """从用户输入抽取城市名（LLM 一次调用）
+
+    抽不到具体城市时返回空字符串。
+    """
+    from app.agent.llm_client import llm_client
+
+    prompt = (
+        "从下面的用户输入中提取城市名，只输出城市名（如「北京」「上海」）。"
+        "如果输入中没有提到具体城市，只输出「无」。\n\n"
+        f"用户输入：{user_input}\n\n城市名："
+    )
+    try:
+        raw = (await llm_client.chat(prompt)).strip()
+    except Exception as e:
+        logger.warning(f"城市抽取 LLM 调用失败: {e}")
+        return ""
+
+    if not raw or raw in ("无", "None", "没有", "不知道"):
+        return ""
+    return raw
+
+
+async def weather_node(state: AgentState) -> dict:
+    """天气查询节点（LLM 抽取城市 + 确定性 API 调用）"""
+    user_input = state["user_input"]
+    city = await _extract_city(user_input)
+    if not city:
+        return {
+            "result": {
+                "status": "error",
+                "message": "请告诉我你想查询哪个城市的天气，例如：北京今天天气怎么样",
+                "error_code": "MISSING_CITY",
+            },
+            "agent_name": "weather_tool",
+        }
+
+    tool = WeatherTool()
+    result = await tool.execute(city)
+    if result["status"] == "ok":
+        result["message"] = (
+            f"{result['city']}当前天气：{result['weather']}，气温{result['temp']}°C，"
+            f"体感{result['feels_like']}°C，{result['wind_dir']}{result['wind_scale']}级，"
+            f"湿度{result['humidity']}%"
+        )
+    return {"result": result, "agent_name": "weather_tool"}
+
+
 # ─────────────────────────── 路由（确定性条件边） ───────────────────────────
 
 def route_by_intent(state: AgentState) -> str:
@@ -298,6 +347,7 @@ def route_by_intent(state: AgentState) -> str:
         "memory": "conversation_node",
         "chat": "conversation_node",
         "time": "time_node",
+        "weather": "weather_node",
     }
     return mapping.get(intent, "data_node")
 
@@ -325,6 +375,7 @@ def build_graph():
     g.add_node("write_node", write_node)
     g.add_node("conversation_node", conversation_node)
     g.add_node("time_node", time_node)
+    g.add_node("weather_node", weather_node)
     g.add_node("save_history", save_history)
     g.add_node("memory_extract", memory_extract)
 
@@ -348,11 +399,12 @@ def build_graph():
             "write_node": "write_node",
             "conversation_node": "conversation_node",
             "time_node": "time_node",
+            "weather_node": "weather_node",
         },
     )
 
     # 执行节点 → 保存历史 → 记忆抽取 → 结束
-    for node in ("data_node", "knowledge_node", "report_node", "write_node", "conversation_node", "time_node"):
+    for node in ("data_node", "knowledge_node", "report_node", "write_node", "conversation_node", "time_node", "weather_node"):
         g.add_edge(node, "save_history")
     g.add_edge("save_history", "memory_extract")
     g.add_edge("memory_extract", END)

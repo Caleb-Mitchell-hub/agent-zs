@@ -25,6 +25,7 @@ scp app/tools/report_templates.py root@172.177.3.43:/opt/agent-zs/app/tools/repo
 scp app/tools/registry.py root@172.177.3.43:/opt/agent-zs/app/tools/registry.py
 scp app/tools/follow_up_router.py root@172.177.3.43:/opt/agent-zs/app/tools/follow_up_router.py
 scp app/tools/time_tool.py root@172.177.3.43:/opt/agent-zs/app/tools/time_tool.py
+scp app/tools/weather_tool.py root@172.177.3.43:/opt/agent-zs/app/tools/weather_tool.py
 scp app/db/schema.py root@172.177.3.43:/opt/agent-zs/app/db/schema.py
 scp app/agents/report_agent.py root@172.177.3.43:/opt/agent-zs/app/agents/report_agent.py
 scp app/memory/extractor.py root@172.177.3.43:/opt/agent-zs/app/memory/extractor.py

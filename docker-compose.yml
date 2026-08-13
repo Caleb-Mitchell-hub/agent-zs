@@ -17,6 +17,8 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - QWEATHER_API_KEY=${QWEATHER_API_KEY}
+      - QWEATHER_API_HOST=${QWEATHER_API_HOST}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
     healthcheck:
