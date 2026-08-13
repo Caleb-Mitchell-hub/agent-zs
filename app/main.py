@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.logging_config import setup_logging
 from app.middleware import RequestLoggingMiddleware, ExceptionHandlerMiddleware
-from app.routers import health, query, report, write, rag, admin, workflow, frontend, admin_config, auth, sessions
+from app.routers import health, query, report, write, rag, admin, workflow, frontend, admin_config, auth, sessions, tasks
 from app.tools.registry import ToolExecutor
 
 # 配置日志
@@ -69,11 +69,20 @@ async def lifespan(app: FastAPI):
     await task_worker.start()
     logger.info("Task Worker 启动完成")
 
+    # 启动任务调度器
+    from app.tasks.scheduler import task_scheduler
+    await task_scheduler.start()
+    logger.info("任务调度器启动完成")
+
     yield
 
     # 停止 Task Worker
     from app.worker.task_worker import task_worker
     await task_worker.stop()
+
+    # 停止任务调度器
+    from app.tasks.scheduler import task_scheduler
+    await task_scheduler.stop()
 
     # 清理
     from app.db.session import close_db
@@ -108,3 +117,4 @@ app.include_router(admin_config.router, prefix="/api/v1", tags=["配置中心"])
 app.include_router(auth.router, prefix="/api/v1", tags=["认证"])
 app.include_router(sessions.router, prefix="/api/v1", tags=["会话"])
 app.include_router(workflow.router, prefix="/api/v1", tags=["工作流"])
+app.include_router(tasks.router, prefix="/api/v1", tags=["任务"])

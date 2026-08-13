@@ -30,6 +30,9 @@ python-dotenv==1.0.1
 sse-starlette==2.1.0
 redis==5.0.0
 
+# 定时任务调度
+APScheduler==3.10.4
+
 # 测试
 pytest==8.3.0
 pytest-asyncio==0.24.0
