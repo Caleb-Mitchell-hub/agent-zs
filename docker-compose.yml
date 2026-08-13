@@ -5,7 +5,7 @@ services:
     build: .
     container_name: agent-zs
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - LLM_PROVIDER=${LLM_PROVIDER}
       - LLM_API_KEY=${LLM_API_KEY}
@@ -16,6 +16,7 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
     healthcheck:
