@@ -361,13 +361,14 @@ class Planner:
                         if len(part) >= 2 and part in user_input:
                             return True
 
-        # C. 极短追问（≤6字）且上一轮是数据查询 → 很可能是对结果的反应
-        # 注意：阈值 6 经过仔细权衡，再宽会误判"北京仓库有哪些"这样的新查询
+        # C. 极短追问（≤6字）+ 明确追问信号词 → 对结果的反应
+        # 必须用正向信号判定，不能用"非聊天即追问"的排除法——
+        # 否则"你是？""哈哈哈""安排行程"等无关短输入会被误判为数据追问，
+        # 导致复用上次查询结果（任何短输入都返回同一段库存数据）
         last_query = context.get("last_query", "")
         if len(user_input) <= 6 and last_query:
-            # 排除明确不是数据追问的闲聊信号
-            chat_signals = ["你好", "您好", "哈喽", "嗨", "在吗", "谢谢", "再见", "你是谁"]
-            if not any(s in user_input for s in chat_signals):
+            short_follow_up_signals = ["然后", "继续", "具体", "详细", "展开", "说说", "明细", "完整", "列全"]
+            if any(s in user_input for s in short_follow_up_signals):
                 return True
 
         return False

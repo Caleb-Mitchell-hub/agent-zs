@@ -306,6 +306,18 @@ def test_very_short_greeting_not_follow_up():
     assert planner._is_data_follow_up("谢谢", ctx) is False
 
 
+def test_unrelated_short_input_not_follow_up():
+    """无关短输入（非追问、非聊天）不应被误判为数据追问
+
+    回归测试：曾因 C 分支用「排除法」判定，导致"你是？""哈哈哈""安排行程"
+    等任何 ≤6 字的无关输入都被判为数据追问，进而复用上次库存查询结果。
+    """
+    ctx = make_data_context()
+    assert planner._is_data_follow_up("你是？", ctx) is False
+    assert planner._is_data_follow_up("哈哈哈", ctx) is False
+    assert planner._is_data_follow_up("安排行程", ctx) is False
+
+
 # ============================================================
 # classify_intent 上下文感知集成测试
 # ============================================================
