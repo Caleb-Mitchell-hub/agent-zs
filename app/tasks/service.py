@@ -145,6 +145,15 @@ async def delete_schedule(user_id: int, task_id: int) -> bool:
     return affected > 0
 
 
+async def get_schedule_id(user_id: int, task_id: int) -> int | None:
+    """查某用户某任务的定时任务 schedule_id（无则 None）。"""
+    rows = await _execute_read(
+        "SELECT schedule_id FROM task_schedules WHERE task_id = :tid AND user_id = :uid LIMIT 1",
+        {"tid": task_id, "uid": user_id},
+    )
+    return rows[0]["schedule_id"] if rows else None
+
+
 async def list_pending_schedules() -> list[dict]:
     """未触发的定时任务（JOIN 任务标题），供调度器启动时加载。"""
     return await _execute_read(
