@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 # 意图规则表（打分制，每个意图对应一组关键词，命中关键词按长度之和计分）
 # 关键词越长/越具体，权重越高
 INTENT_RULES = [
+    # 任务规划（今日/本月/本年任务切分）——放最前，长词优先，避免误判
+    ("task_plan", [
+        "今日任务", "今天任务", "本月任务", "本年任务", "今年任务",
+        "今日计划", "本月计划", "年度任务", "年度计划", "今天做什么",
+        "任务切分", "拆分任务", "规划任务",
+    ]),
     # 记忆/回顾
     ("memory", [
         "记得", "之前说", "之前聊", "刚才", "聊了什么", "我问了",
@@ -77,7 +83,7 @@ INTENT_RULES = [
 _RULE_CONFIDENCE_RATIO = 2.0
 
 # 合法意图集合（LLM 输出校验白名单，防止脏数据透传到下游路由）
-VALID_INTENTS = {"query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat"}
+VALID_INTENTS = {"query", "create", "update", "report", "knowledge", "memory", "time", "weather", "chat", "task_plan"}
 
 # 意图分类 Prompt
 INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要根据对话上下文和当前用户输入判断其所属意图类别。
@@ -151,6 +157,12 @@ INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要�
   “你是谁”
   “最近怎么样”
 
+- task_plan：
+  用户希望规划/切分任务，输入包含「今日任务」「本月任务」「本年任务」等。
+  示例：
+  “今日任务：完成库存盘点”
+  “本月任务：梳理采购流程”
+
 【判断要求】
 1. 必须结合对话上下文理解用户当前输入的真正意图。
 2. 如果当前输入是省略表达、指代词或追问（如”那北京呢？””按地区分””改成华为”），必须根据对话历史推断其完整意图。
@@ -159,7 +171,7 @@ INTENT_CLASSIFY_PROMPT = """你是一名专业的用户意图分类器，需要�
 5. 如果多个类别都符合，选择用户主要目的对应的类别。
 6. 输出必须严格匹配以下格式：
 
-query / create / update / report / knowledge / memory / time / weather / chat
+query / create / update / report / knowledge / memory / time / weather / chat / task_plan
 
 【对话历史】
 {conversation_history}

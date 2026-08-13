@@ -31,6 +31,8 @@ from app.agents.data_agent import DataAgent
 from app.agents.write_agent import WriteAgent
 from app.agents.knowledge_agent import KnowledgeAgent
 from app.agents.report_agent import ReportAgent
+from app.tasks.planner import parse_plan_input, split_today, split_month, split_year
+from app.tasks.service import get_workday_sets
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +355,44 @@ async def weather_node(state: AgentState) -> dict:
     return {"result": result, "agent_name": "weather_tool"}
 
 
+async def task_plan_node(state: AgentState) -> dict:
+    """任务规划节点（确定性切分，零 LLM）
+
+    设计文档 §7：LLM 已在 classify_intent 判定 task_plan 意图，
+    此处用纯函数按粒度切分，返回预览（不落库）。
+    """
+    user_input = state["user_input"]
+    granularity, goal = parse_plan_input(user_input)
+    goal = goal or "待规划任务"
+    today = datetime.now().date()
+    user_id = state.get("user_id", 0)
+
+    if granularity == "today":
+        items = split_today(goal, today)
+    else:
+        holidays, workdays, leaves = await get_workday_sets(user_id, today.year)
+        if granularity == "month":
+            items = split_month(goal, today.year, today.month, holidays, workdays, leaves)
+        else:  # year
+            items = split_year(goal, today.year, holidays, workdays, leaves)
+
+    gran_cn = {"today": "今日", "month": "本月", "year": "本年"}[granularity]
+    message = (
+        f"【{gran_cn}任务规划预览】已将「{goal}」切分为 {len(items)} 个子任务，"
+        f"确认后落库（目前为预览，未写入任务表）。"
+    )
+    return {
+        "result": {
+            "status": "ok",
+            "data": items,
+            "sql": None,
+            "message": message,
+            "preview": True,
+        },
+        "agent_name": "task_planner",
+    }
+
+
 # ─────────────────────────── 路由（确定性条件边） ───────────────────────────
 
 def route_by_intent(state: AgentState) -> str:
@@ -368,6 +408,7 @@ def route_by_intent(state: AgentState) -> str:
         "chat": "conversation_node",
         "time": "time_node",
         "weather": "weather_node",
+        "task_plan": "task_plan_node",
     }
     return mapping.get(intent, "data_node")
 
@@ -396,6 +437,7 @@ def build_graph():
     g.add_node("conversation_node", _with_progress("正在生成回答...", conversation_node))
     g.add_node("time_node", _with_progress("正在获取时间...", time_node))
     g.add_node("weather_node", _with_progress("正在查询天气...", weather_node))
+    g.add_node("task_plan_node", _with_progress("正在规划任务...", task_plan_node))
     g.add_node("save_history", _with_progress("正在整理查询结果...", save_history))
     g.add_node("memory_extract", memory_extract)
 
@@ -420,11 +462,12 @@ def build_graph():
             "conversation_node": "conversation_node",
             "time_node": "time_node",
             "weather_node": "weather_node",
+            "task_plan_node": "task_plan_node",
         },
     )
 
     # 执行节点 → 保存历史 → 记忆抽取 → 结束
-    for node in ("data_node", "knowledge_node", "report_node", "write_node", "conversation_node", "time_node", "weather_node"):
+    for node in ("data_node", "knowledge_node", "report_node", "write_node", "conversation_node", "time_node", "weather_node", "task_plan_node"):
         g.add_edge(node, "save_history")
     g.add_edge("save_history", "memory_extract")
     g.add_edge("memory_extract", END)
