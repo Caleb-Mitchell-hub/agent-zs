@@ -1,4 +1,4 @@
-"""前端页面路由"""
+"""Frontend page routes."""
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
@@ -8,1141 +8,981 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 async def index():
-    """AI 助手主页 — 侧边栏对话列表 + 聊天区"""
-    return """
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>AI 智能助手</title>
-        <style>
-            :root {
-                --primary: #1890ff;
-                --primary-hover: #40a9ff;
-                --primary-dark: #096dd9;
-                --primary-soft: #e6f7ff;
-                --success: #52c41a;
-                --warning: #fa8c16;
-                --danger: #ff4d4f;
-                --surface: #ffffff;
-                --border: #e8e8e8;
-                --text: #262626;
-                --text-secondary: #8c8c8c;
-                --text-muted: #bfbfbf;
-                --radius: 8px;
-            }
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; }
-
-            /* ── 侧边栏 ── */
-            .sidebar { width: 280px; background: #fff; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; flex-shrink: 0; }
-            .sidebar-header { padding: 16px; border-bottom: 1px solid #e8e8e8; }
-            .sidebar-header h3 { font-size: 15px; color: #333; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
-            .sidebar-header h3 span { font-size: 11px; color: #999; font-weight: normal; }
-            .new-chat-btn { width: 100%; padding: 10px 0; background: #1890ff; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: background 0.2s; }
-            .new-chat-btn:hover { background: #40a9ff; }
-            .session-list { flex: 0 0 40%; overflow-y: auto; padding: 8px 0; min-height: 0; }
-            .session-list::-webkit-scrollbar { width: 4px; }
-            .session-list::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 2px; }
-            .session-item { padding: 12px 16px; cursor: pointer; border-left: 3px solid transparent; display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
-            .session-item:hover { background: #f5f5f5; }
-            .session-item.active { background: #e6f7ff; border-left-color: #1890ff; }
-            .session-item .info { overflow: hidden; flex: 1; min-width: 0; }
-            .session-item .title { font-size: 13px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
-            .session-item .meta { font-size: 11px; color: #999; }
-            .session-item .del-btn { visibility: hidden; background: none; border: none; color: #999; font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 4px; line-height: 1; flex-shrink: 0; }
-            .session-item:hover .del-btn { visibility: visible; }
-            .session-item .del-btn:hover { background: #fff2f0; color: #ff4d4f; }
-            .no-sessions { padding: 32px 16px; text-align: center; color: #bbb; font-size: 13px; }
-            .session-group-head { padding: 8px 16px 4px; font-size: 11px; color: #999; }
-            .session-group-head span { color: #bbb; }
-            .task-group-head { padding: 8px 12px 4px; font-size: 11px; color: #999; }
-            .task-group-head span { color: #bbb; }
-
-            /* ── 任务区 ── */
-            .task-panel { border-top: 1px solid #e8e8e8; flex: 1 1 60%; display: flex; flex-direction: column; min-height: 0; }
-            .task-panel .task-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; flex-shrink: 0; }
-            .task-panel .task-header span { font-size: 13px; color: #333; font-weight: 500; }
-            .task-panel .task-header #taskCount { font-size: 11px; color: #999; font-weight: normal; }
-            .task-tabs { display: flex; padding: 0 12px 8px; gap: 4px; flex-shrink: 0; }
-            .task-tab { flex: 1; padding: 6px 0; text-align: center; font-size: 12px; border: 1px solid #e8e8e8; border-radius: 6px; cursor: pointer; color: #666; }
-            .task-tab.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
-            .task-list { overflow-y: auto; padding: 0 8px 8px; flex: 1; }
-            .task-list::-webkit-scrollbar { width: 4px; }
-            .task-list::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 2px; }
-            .task-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-            .task-item:hover { background: #f5f5f5; }
-            .task-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-            .task-item .dot.pending { background: var(--primary); }
-            .task-item .dot.doing { background: var(--warning); }
-            .task-item .dot.done { background: var(--success); }
-            .task-item .dot.overdue { background: var(--danger); }
-
-            /* ── 工作记录（日历视图）── */
-            .calendar-area { flex: 1; overflow-y: auto; padding: 16px 20px; }
-            .cal-wrap { max-width: 860px; margin: 0 auto; }
-            .cal-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; }
-            .cal-nav .nav-btn { width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 14px; transition: all .15s; }
-            .cal-nav .nav-btn:hover { color: var(--primary); border-color: var(--primary); }
-            .cal-nav .cal-title { font-size: 14px; font-weight: 500; min-width: 108px; text-align: center; }
-            .cal-nav select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: var(--surface); outline: none; color: var(--text); }
-            .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-            .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; border-left: 3px solid var(--primary); }
-            .stat-card .num { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.1; }
-            .stat-card .lbl { font-size: 12px; color: var(--text-secondary); margin-top: 5px; }
-            .stat-card.done { border-left-color: var(--success); }
-            .stat-card.created { border-left-color: var(--primary); }
-            .stat-card.active { border-left-color: var(--warning); }
-            .stat-card.rate { border-left-color: #722ed1; }
-            .cal { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-            .cal-weekhead { display: grid; grid-template-columns: repeat(7, 1fr); background: #fafafa; border-bottom: 1px solid var(--border); }
-            .cal-weekhead span { text-align: center; font-size: 11px; color: var(--text-secondary); padding: 8px 0; }
-            .cal-weekhead .wk { color: var(--danger); }
-            .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
-            .cal-cell { min-height: 76px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px 8px; cursor: pointer; position: relative; transition: outline .1s; background: #fff; }
-            .cal-cell:nth-child(7n) { border-right: none; }
-            .cal-cell:hover { outline: 2px solid var(--primary); outline-offset: -2px; z-index: 1; }
-            .cal-cell.other { background: #fafafa; }
-            .cal-cell .day-num { font-size: 12px; color: var(--text-secondary); width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
-            .cal-cell.today .day-num { color: #fff; background: var(--primary); font-weight: 500; }
-            .cal-cell .cell-stats { display: flex; gap: 10px; margin-top: 8px; font-size: 11px; align-items: center; }
-            .cal-cell .c-done { color: #389e0d; font-weight: 600; }
-            .cal-cell .c-created { color: var(--primary); }
-            .cal-cell .c-done::before { content: '✓'; margin-right: 2px; font-size: 10px; }
-            .cal-cell .c-created::before { content: '+'; margin-right: 2px; font-size: 11px; }
-            .cal-detail { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; background: var(--surface); }
-            .cal-detail .d-head { font-size: 13px; font-weight: 500; margin-bottom: 8px; }
-            .cal-detail .d-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 12px; color: var(--text); border-bottom: 1px dashed var(--border); }
-            .cal-detail .d-item:last-child { border-bottom: none; }
-            .cal-detail .d-item .d-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-            .cal-detail .d-item .d-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .cal-detail .d-item .d-time { font-size: 11px; color: var(--text-muted); }
-            .cal-detail .d-empty { font-size: 12px; color: var(--text-muted); padding: 4px 0; }
-            .year-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-            .mini-cal { border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
-            .mini-cal .mc-title { font-size: 12px; font-weight: 500; text-align: center; margin-bottom: 8px; }
-            .mini-cal .mc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-            .mini-cal .mc-cell { aspect-ratio: 1; border-radius: 2px; background: #ebedf0; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #999; }
-            .mini-cal .mc-cell.has { background: var(--primary-soft); color: var(--primary-dark); font-weight: 600; }
-            .mini-cal .mc-cell.today { background: var(--primary); color: #fff; }
-
-            /* ── 主区域 ── */
-            .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-            .topbar { background: #1890ff; color: white; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-            .topbar h1 { font-size: 16px; font-weight: 500; }
-            .topbar .user-info { font-size: 13px; opacity: 0.9; }
-            .topbar .user-info a { color: #fff; text-decoration: underline; cursor: pointer; }
-            .topbar .user-info a:hover { opacity: 0.8; }
-            .chat-area { flex: 1; display: flex; flex-direction: column; max-width: 860px; margin: 0 auto; width: 100%; padding: 16px 20px; overflow: hidden; }
-            .chat-box { flex: 1; overflow-y: auto; padding-right: 4px; }
-            .chat-box::-webkit-scrollbar { width: 4px; }
-            .chat-box::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 2px; }
-
-            .message { margin-bottom: 16px; display: flex; gap: 10px; }
-            .message.user { flex-direction: row-reverse; }
-            .message .avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
-            .message.user .avatar { background: #1890ff; color: white; }
-            .message.assistant .avatar { background: #52c41a; color: white; }
-            .message .msg-body { display: flex; flex-direction: column; max-width: 75%; min-width: 0; }
-            .message.user .msg-body { align-items: flex-end; }
-            .message.assistant .msg-body { align-items: flex-start; }
-            .message .content { max-width: 100%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; word-break: break-word; }
-            .message.user .content { background: #1890ff; color: white; border-bottom-right-radius: 4px; }
-            .message.assistant .content { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); white-space: pre-wrap; }
-
-            /* 旧消息加载时灰色背景 */
-            .message.assistant.history .content { background: #fafafa; }
-
-            .message .content pre { background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin-top: 6px; }
-            .table-wrap { overflow-x: auto; max-width: 100%; }
-            .message .content table { width: 100%; border-collapse: collapse; margin-top: 6px; min-width: 500px; font-size: 12px; }
-            .message .content th, .message .content td { border: 1px solid #e8e8e8; padding: 6px 8px; text-align: left; white-space: nowrap; }
-            .message .content th { background: #fafafa; font-weight: 500; }
-            /* 消息复制按钮（纯图标，无文字）：用户消息左下角、AI 消息右下角 */
-            .message .copy-btn { background: none; border: none; cursor: pointer; padding: 3px; border-radius: 4px; color: #bfbfbf; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 4px; transition: color 0.2s, background 0.2s; }
-            .message.user .msg-body .copy-btn { align-self: flex-start; }
-            .message.assistant .msg-body .copy-btn { align-self: flex-end; }
-            .message .copy-btn:hover { color: #1890ff; background: #f0f0f0; }
-            .message .copy-btn.copied { color: #52c41a; }
-            .error-msg { color: #ff4d4f; background: #fff2f0; border: 1px solid #ffccc7; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
-            /* ── 任务规划预览（确认落库）── */
-            .task-plan-preview { margin-top: 6px; }
-            .task-plan-preview .plan-msg { font-size: 13px; color: #333; margin-bottom: 8px; }
-            .plan-list { max-height: 240px; overflow-y: auto; border: 1px solid #e8e8e8; border-radius: 6px; padding: 4px 6px; }
-            .plan-item { display: flex; align-items: center; gap: 8px; padding: 5px 4px; font-size: 12px; color: #333; }
-            .plan-item .plan-check { flex-shrink: 0; cursor: pointer; }
-            .plan-item .plan-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .plan-item .plan-date { font-size: 11px; color: #999; flex-shrink: 0; }
-            .plan-actions { display: flex; gap: 8px; margin-top: 10px; }
-            .plan-confirm-btn { background: #1890ff; color: white; border: none; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-            .plan-confirm-btn:hover { background: #40a9ff; }
-            .plan-confirm-btn:disabled { background: #d9d9d9; cursor: not-allowed; }
-            .plan-cancel-btn { background: #fff; color: #666; border: 1px solid #d9d9d9; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-            .plan-cancel-btn:hover { border-color: #1890ff; color: #1890ff; }
-            .plan-success { font-size: 13px; color: #52c41a; padding: 7px 0; }
-            .quick-actions { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; flex-shrink: 0; }
-            .quick-btn { background: #fff; border: 1px solid #d9d9d9; padding: 6px 14px; border-radius: 16px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
-            .quick-btn:hover { border-color: #1890ff; color: #1890ff; }
-            .input-area { display: flex; gap: 10px; flex-shrink: 0; }
-            .input-area input { flex: 1; padding: 10px 14px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 14px; outline: none; }
-            .input-area input:focus { border-color: #1890ff; box-shadow: 0 0 0 2px rgba(24,144,255,0.15); }
-            .input-area button { background: #1890ff; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-            .input-area button:hover { background: #40a9ff; }
-            .input-area button:disabled { background: #d9d9d9; cursor: not-allowed; }
-            .typing { display: none; padding: 6px 0; color: #999; font-size: 12px; flex-shrink: 0; }
-            .typing.show { display: block; }
-            .welcome { text-align: center; padding: 60px 20px; color: #bbb; }
-            .welcome h2 { font-size: 22px; color: #999; margin-bottom: 10px; }
-            .welcome p { font-size: 13px; }
-
-            /* ── 响应式 ── */
-            @media (max-width: 700px) {
-                .sidebar { display: none; }
-            }
-        </style>
-    </head>
-    <body>
-        <!-- 侧边栏 -->
-        <div class="sidebar">
-            <div class="sidebar-header">
-                <h3 style="cursor:pointer;user-select:none;" onclick="toggleSessionList()">对话列表 <span id="sessionCount"></span><span id="sessionArrow" style="margin-left:auto;">▾</span></h3>
-                <button class="new-chat-btn" onclick="newChat()">＋ 新对话</button>
-            </div>
-            <input type="text" id="sessionSearch" placeholder="搜索对话..." oninput="loadSessionList()" style="margin:0 12px 8px;padding:6px 10px;border:1px solid #e8e8e8;border-radius:6px;font-size:12px;box-sizing:border-box;width:calc(100% - 24px);">
-            <div class="session-list" id="sessionList">
-                <div class="no-sessions">加载中...</div>
-            </div>
-            <div class="task-panel" id="taskPanel">
-                <div class="task-header" onclick="toggleTaskPanel()">
-                    <span>任务列表 <span id="taskCount"></span></span><span id="taskArrow">▾</span>
-                </div>
-                <div class="task-tabs" id="taskTabs">
-                    <div class="task-tab active" data-filter="all" onclick="switchTaskTab('all')">全部</div>
-                    <div class="task-tab" data-filter="done" onclick="switchTaskTab('done')">已完成</div>
-                    <div class="task-tab" data-filter="pending" onclick="switchTaskTab('pending')">待办</div>
-                    <div class="task-tab" data-filter="doing" onclick="switchTaskTab('doing')">处理中</div>
-                </div>
-                <input type="text" id="taskSearch" placeholder="搜索任务..." oninput="loadTasks()" style="margin:0 12px 6px;padding:6px 10px;border:1px solid #e8e8e8;border-radius:6px;font-size:12px;">
-                <div style="display:flex;gap:6px;padding:0 12px 6px;">
-                    <input type="text" id="taskAddInput" placeholder="新增任务，回车确认..." onkeypress="if(event.key==='Enter')addTask()" style="flex:1;padding:6px 10px;border:1px solid #e8e8e8;border-radius:6px;font-size:12px;">
-                    <button onclick="addTask()" style="padding:6px 12px;background:#1890ff;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">＋</button>
-                </div>
-                <div class="task-list" id="taskList"></div>
-            </div>
+    """Main AI assistant page."""
+    return r"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent-Zs</title>
+    <style>
+        :root {
+            --bg: #f5f7fb;
+            --panel: rgba(255, 255, 255, 0.86);
+            --panel-strong: #fff;
+            --text: #111827;
+            --muted: #6b7280;
+            --faint: #9ca3af;
+            --line: rgba(148, 163, 184, 0.28);
+            --blue: #2563eb;
+            --blue-dark: #1d4ed8;
+            --green: #16a34a;
+            --amber: #d97706;
+            --red: #dc2626;
+            --shadow: 0 18px 40px rgba(15, 23, 42, 0.10);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+            color: var(--text);
+            font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: linear-gradient(180deg, #fbfdff 0%, #eef3fb 100%);
+        }
+        button, input, select { font: inherit; }
+        button { border: 0; cursor: pointer; }
+        .sidebar {
+            width: 320px;
+            min-width: 320px;
+            display: flex;
+            flex-direction: column;
+            background: rgba(255,255,255,0.78);
+            border-right: 1px solid var(--line);
+            backdrop-filter: blur(16px);
+        }
+        .sidebar-header { padding: 18px 16px 14px; border-bottom: 1px solid var(--line); }
+        .side-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-weight: 700; font-size: 14px; }
+        .new-chat-btn, .send-btn {
+            color: #fff;
+            background: linear-gradient(135deg, var(--blue), #4f46e5);
+            border-radius: 8px;
+            font-weight: 700;
+            box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
+        }
+        .new-chat-btn { width: 100%; padding: 11px 14px; }
+        .search, .task-input, .composer-input {
+            width: 100%;
+            color: var(--text);
+            background: rgba(255,255,255,0.84);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            outline: 0;
+        }
+        .search { margin: 12px 12px 8px; width: calc(100% - 24px); padding: 9px 12px; font-size: 12px; }
+        .search:focus, .task-input:focus, .composer-input:focus { border-color: rgba(37,99,235,.45); box-shadow: 0 0 0 3px rgba(37,99,235,.10); }
+        .session-list { flex: 1 1 46%; overflow-y: auto; padding: 4px 8px 12px; min-height: 0; }
+        .session-group-head, .task-group-head { padding: 10px 10px 6px; color: var(--faint); font-size: 11px; letter-spacing: 0; }
+        .session-item {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 0 2px 6px;
+            padding: 11px 10px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+        }
+        .session-item:hover { background: rgba(255,255,255,.85); border-color: var(--line); }
+        .session-item.active { background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.20); }
+        .session-info { min-width: 0; flex: 1; }
+        .session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; }
+        .session-meta { margin-top: 3px; color: var(--faint); font-size: 11px; }
+        .icon-btn { width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); background: transparent; border-radius: 6px; }
+        .icon-btn:hover { color: var(--blue); background: rgba(37,99,235,.08); }
+        .danger:hover { color: var(--red); background: rgba(220,38,38,.08); }
+        .empty { padding: 34px 12px; text-align: center; color: var(--faint); font-size: 13px; }
+        .task-panel { flex: 1 1 54%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+        .task-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px 8px; font-size: 13px; font-weight: 700; }
+        .task-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 0 12px 9px; }
+        .task-tab { padding: 7px 0; color: var(--muted); background: rgba(255,255,255,.75); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+        .task-tab.active { color: var(--blue); background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.24); font-weight: 700; }
+        .task-add { display: flex; gap: 6px; padding: 0 12px 8px; }
+        .task-input { padding: 9px 10px; font-size: 12px; }
+        .task-add-btn { width: 38px; border-radius: 8px; color: #fff; background: var(--blue); font-weight: 800; }
+        .task-list { overflow-y: auto; padding: 0 8px 12px; }
+        .task-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 8px; font-size: 12px; }
+        .task-item:hover { background: rgba(255,255,255,.8); }
+        .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+        .pending { background: var(--blue); }
+        .doing { background: var(--amber); }
+        .done { background: var(--green); }
+        .overdue { background: var(--red); }
+        .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .topbar {
+            height: 58px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            background: rgba(255,255,255,.64);
+            border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(16px);
+        }
+        .brand { font-size: 16px; font-weight: 800; }
+        .nav { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+        .nav a { color: var(--blue); text-decoration: none; font-weight: 650; cursor: pointer; }
+        .badge { display: none; margin-left: 4px; padding: 1px 6px; border-radius: 999px; color: #fff; background: var(--red); font-size: 10px; }
+        .chat-area, .calendar-area { flex: 1; min-height: 0; overflow: hidden; }
+        .chat-area { display: flex; flex-direction: column; max-width: 930px; width: 100%; margin: 0 auto; padding: 18px 22px 20px; }
+        .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .quick-btn { padding: 8px 13px; color: var(--muted); background: rgba(255,255,255,.82); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
+        .quick-btn:hover { color: var(--blue); border-color: rgba(37,99,235,.25); }
+        .chat-box { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 4px 14px 0; }
+        .welcome { padding: 78px 20px; text-align: center; color: var(--muted); }
+        .welcome h2 { margin: 0 0 10px; font-size: 24px; color: var(--text); }
+        .message { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 16px; }
+        .message.user { flex-direction: row-reverse; }
+        .avatar { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 800; }
+        .user .avatar { background: linear-gradient(135deg, var(--blue), #4f46e5); }
+        .assistant .avatar { background: linear-gradient(135deg, #111827, #374151); }
+        .msg-body { max-width: min(790px, 82%); display: flex; flex-direction: column; min-width: 0; }
+        .user .msg-body { align-items: flex-end; }
+        .content { padding: 12px 15px; border-radius: 8px; line-height: 1.72; font-size: 14px; overflow-wrap: anywhere; }
+        .user .content { color: #fff; background: linear-gradient(135deg, var(--blue), #4f46e5); }
+        .assistant .content { background: var(--panel-strong); border: 1px solid var(--line); box-shadow: var(--shadow); }
+        .content p { margin: 0 0 .78em; }
+        .content p:last-child { margin-bottom: 0; }
+        .content h1, .content h2, .content h3 { margin: .95em 0 .5em; line-height: 1.35; }
+        .content h1 { font-size: 1.28em; }
+        .content h2 { font-size: 1.16em; }
+        .content h3 { font-size: 1.05em; }
+        .content ul, .content ol { margin: .5em 0 .9em; padding-left: 1.35em; }
+        .content blockquote { margin: .8em 0; padding: .15em 0 .15em 12px; border-left: 3px solid rgba(37,99,235,.38); color: var(--muted); background: rgba(37,99,235,.04); }
+        .content code:not(pre code) { padding: .12em .36em; border-radius: 6px; background: rgba(15,23,42,.07); }
+        .content pre { margin: .85em 0 0; padding: 14px; overflow-x: auto; border-radius: 8px; color: #e5e7eb; background: #111827; }
+        .table-wrap { margin-top: .7em; overflow-x: auto; }
+        table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12.5px; }
+        th, td { padding: 8px 10px; border: 1px solid var(--line); text-align: left; white-space: nowrap; }
+        th { background: rgba(37,99,235,.06); }
+        .copy-btn { align-self: flex-end; margin-top: 4px; color: var(--faint); background: transparent; border-radius: 6px; padding: 4px 6px; }
+        .copy-btn:hover { color: var(--blue); background: rgba(37,99,235,.08); }
+        .typing { display: none; align-items: center; gap: 9px; width: fit-content; margin: 0 0 12px 46px; padding: 9px 13px; border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.84); border: 1px solid var(--line); font-size: 12.5px; }
+        .typing.show { display: inline-flex; }
+        .typing-dots { display: inline-flex; gap: 4px; }
+        .typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite ease-in-out; }
+        .typing-dots span:nth-child(2) { animation-delay: .15s; }
+        .typing-dots span:nth-child(3) { animation-delay: .3s; }
+        @keyframes pulse { 0%, 80%, 100% { opacity: .32; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+        .composer { display: flex; gap: 10px; align-items: center; }
+        .composer-input { padding: 13px 15px; }
+        .send-btn { padding: 13px 20px; border-radius: 8px; }
+        .send-btn:disabled { background: #cbd5e1; box-shadow: none; cursor: not-allowed; }
+        .error-msg { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 8px; }
+        .calendar-area { overflow-y: auto; padding: 18px 22px; }
+        .cal-wrap { max-width: 930px; margin: 0 auto; }
+        .cal-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+        .cal-title { min-width: 120px; text-align: center; font-weight: 750; }
+        .nav-btn, .cal-nav select { height: 32px; border: 1px solid var(--line); background: #fff; border-radius: 8px; }
+        .nav-btn { width: 32px; color: var(--muted); }
+        .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+        .stat-card { background: var(--panel-strong); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+        .stat-card .num { font-size: 24px; font-weight: 850; }
+        .stat-card .lbl { margin-top: 4px; color: var(--muted); font-size: 12px; }
+        .cal, .cal-detail, .mini-cal { background: var(--panel-strong); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+        .cal-weekhead, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+        .cal-weekhead { color: var(--muted); background: #f8fafc; border-bottom: 1px solid var(--line); font-size: 12px; }
+        .cal-weekhead span { padding: 9px 0; text-align: center; }
+        .cal-cell { min-height: 78px; padding: 7px 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: pointer; }
+        .cal-cell:nth-child(7n) { border-right: 0; }
+        .cal-cell.other { background: #f8fafc; }
+        .day-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--muted); font-size: 12px; }
+        .today .day-num { color: #fff; background: var(--blue); }
+        .cell-stats { display: flex; gap: 10px; margin-top: 8px; font-size: 11px; }
+        .c-done { color: var(--green); font-weight: 800; }
+        .c-created { color: var(--blue); }
+        .cal-detail { margin-top: 16px; padding: 15px 16px; }
+        .d-head { margin-bottom: 8px; font-size: 13px; font-weight: 750; }
+        .d-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }
+        .d-item:last-child { border-bottom: 0; }
+        .d-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .d-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .d-time, .d-empty { color: var(--faint); font-size: 12px; }
+        .year-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .mini-cal { padding: 10px; }
+        .mc-title { margin-bottom: 8px; text-align: center; font-size: 12px; font-weight: 750; }
+        .mc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+        .mc-cell { aspect-ratio: 1; display: grid; place-items: center; border-radius: 4px; background: #edf2f7; color: var(--faint); font-size: 9px; }
+        .mc-cell.has { color: var(--blue-dark); background: #dbeafe; font-weight: 800; }
+        .mc-cell.today { color: #fff; background: var(--blue); }
+        .toast { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: none; max-width: 340px; padding: 12px 14px; border-radius: 8px; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--text); font-size: 13px; }
+        @media (max-width: 760px) {
+            .sidebar { display: none; }
+            .topbar { padding: 0 14px; }
+            .chat-area { padding: 14px; }
+            .msg-body { max-width: 86%; }
+            .stat-cards, .year-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="side-title"><span>&#23545;&#35805;&#21015;&#34920;</span><span id="sessionCount"></span></div>
+            <button class="new-chat-btn" id="newChatBtn">&#65291; &#26032;&#23545;&#35805;</button>
         </div>
-
-        <!-- 主区域 -->
-        <div class="main">
-            <div class="topbar">
-                <h1>AI 智能助手</h1>
-                <span class="user-info">
-                    <a onclick="switchMainView('chat')">聊天</a> |
-                    <a onclick="switchMainView('calendar')">工作记录<span id="remindBadge" style="display:none;background:#fff;color:#ff4d4f;border-radius:8px;font-size:10px;padding:0 5px;margin-left:4px;font-weight:600;">提醒</span></a> |
-                    <span id="userNameDisplay"></span> | <a onclick="logout()">退出</a>
-                </span>
+        <input class="search" id="sessionSearch" type="text" placeholder="&#25628;&#32034;&#23545;&#35805;...">
+        <div class="session-list" id="sessionList"><div class="empty">&#21152;&#36733;&#20013;...</div></div>
+        <section class="task-panel">
+            <div class="task-head"><span>&#20219;&#21153;&#21015;&#34920; <span id="taskCount"></span></span><button class="icon-btn" id="taskToggle" title="toggle">&#9662;</button></div>
+            <div class="task-tabs" id="taskTabs">
+                <button class="task-tab active" data-filter="all">&#20840;&#37096;</button>
+                <button class="task-tab" data-filter="done">&#24050;&#23436;&#25104;</button>
+                <button class="task-tab" data-filter="pending">&#24453;&#21150;</button>
+                <button class="task-tab" data-filter="doing">&#22788;&#29702;&#20013;</button>
             </div>
-            <div class="chat-area" id="chatArea">
-                <div class="quick-actions">
-                    <button class="quick-btn" onclick="askQuick('查询所有仓库的库存', 'query')">查询库存</button>
-                    <button class="quick-btn" onclick="askQuick('统计本月销售额', 'query')">本月销售</button>
-                    <button class="quick-btn" onclick="askQuick('采购订单审批流程', 'knowledge')">审批流程</button>
-                    <button class="quick-btn" onclick="askQuick('创建采购订单', 'create')">创建订单</button>
-                </div>
-                <div class="chat-box" id="chatBox">
-                    <div class="welcome"><h2>欢迎使用 AI 智能助手</h2><p>点击左侧「新对话」开始，或选择已有对话</p></div>
-                </div>
-                <div class="typing" id="typing">AI 正在思考...</div>
-                <div class="input-area">
-                    <input type="text" id="input" placeholder="输入你的问题..." onkeypress="if(event.key==='Enter')send()">
-                    <button id="sendBtn" onclick="send()">发送</button>
-                </div>
+            <input class="search" id="taskSearch" type="text" placeholder="&#25628;&#32034;&#20219;&#21153;...">
+            <div class="task-add">
+                <input class="task-input" id="taskAddInput" type="text" placeholder="&#26032;&#22686;&#20219;&#21153;&#65292;&#22238;&#36710;&#30830;&#35748;...">
+                <button class="task-add-btn" id="taskAddBtn">+</button>
             </div>
-            <div class="calendar-area" id="calPanel" style="display:none">
-                <div class="cal-wrap">
-                    <div class="cal-nav">
-                        <button class="nav-btn" onclick="calShift(-1)">‹</button>
-                        <span class="cal-title" id="calTitle"></span>
-                        <button class="nav-btn" onclick="calShift(1)">›</button>
-                        <select id="calView" onchange="switchCalView(this.value)">
-                            <option value="month">月视图</option>
-                            <option value="year">年视图</option>
-                        </select>
-                    </div>
-                    <div class="stat-cards">
-                        <div class="stat-card done"><div class="num" id="kDone">0</div><div class="lbl">本月完成</div></div>
-                        <div class="stat-card created"><div class="num" id="kCreated">0</div><div class="lbl">本月创建</div></div>
-                        <div class="stat-card active"><div class="num" id="kActive">0</div><div class="lbl">活跃天数</div></div>
-                        <div class="stat-card rate"><div class="num" id="kRate">—</div><div class="lbl">完成率</div></div>
-                    </div>
-                    <div id="calMonth">
-                        <div class="cal">
-                            <div class="cal-weekhead">
-                                <span class="wk">日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span class="wk">六</span>
-                            </div>
-                            <div class="cal-grid" id="calGrid"></div>
-                        </div>
-                        <div class="cal-detail" id="calDetail"></div>
-                    </div>
-                    <div id="calYear" style="display:none">
-                        <div class="year-grid" id="yearGrid"></div>
-                    </div>
-                </div>
+            <div class="task-list" id="taskList"></div>
+        </section>
+    </aside>
+    <main class="main">
+        <header class="topbar">
+            <div class="brand">Agent-Zs</div>
+            <nav class="nav">
+                <a id="chatNav">&#32842;&#22825;</a>
+                <a id="calendarNav">&#24037;&#20316;&#35760;&#24405;<span class="badge" id="remindBadge">&#25552;&#37266;</span></a>
+                <span id="userNameDisplay"></span>
+                <a id="logoutBtn">&#36864;&#20986;</a>
+            </nav>
+        </header>
+        <section class="chat-area" id="chatArea">
+            <div class="quick-actions">
+                <button class="quick-btn" data-intent="query" data-q="&#26597;&#35810;&#25152;&#26377;&#20179;&#24211;&#30340;&#24211;&#23384;">&#26597;&#35810;&#24211;&#23384;</button>
+                <button class="quick-btn" data-intent="query" data-q="&#32479;&#35745;&#26412;&#26376;&#38144;&#21806;&#39069;">&#26412;&#26376;&#38144;&#21806;</button>
+                <button class="quick-btn" data-intent="knowledge" data-q="&#37319;&#36141;&#35746;&#21333;&#23457;&#25209;&#27969;&#31243;">&#23457;&#25209;&#27969;&#31243;</button>
+                <button class="quick-btn" data-intent="create" data-q="&#21019;&#24314;&#37319;&#36141;&#35746;&#21333;">&#21019;&#24314;&#35746;&#21333;</button>
             </div>
-        </div>
+            <div class="chat-box" id="chatBox">
+                <div class="welcome"><h2>&#27426;&#36814;&#20351;&#29992; Agent-Zs</h2><p>&#36755;&#20837;&#38382;&#39064;&#25110;&#36873;&#25321;&#24038;&#20391;&#21382;&#21490;&#23545;&#35805;&#24320;&#22987;&#12290;</p></div>
+            </div>
+            <div class="typing" id="typing"><span class="typing-dots"><span></span><span></span><span></span></span><span id="typingLabel">AI &#27491;&#22312;&#29983;&#25104;</span></div>
+            <div class="composer">
+                <input class="composer-input" id="input" type="text" placeholder="&#36755;&#20837;&#20320;&#30340;&#38382;&#39064;...">
+                <button class="send-btn" id="sendBtn">&#21457;&#36865;</button>
+            </div>
+        </section>
+        <section class="calendar-area" id="calPanel" style="display:none">
+            <div class="cal-wrap">
+                <div class="cal-nav">
+                    <button class="nav-btn" id="calPrev">&#8249;</button>
+                    <span class="cal-title" id="calTitle"></span>
+                    <button class="nav-btn" id="calNext">&#8250;</button>
+                    <select id="calView">
+                        <option value="month">&#26376;&#35270;&#22270;</option>
+                        <option value="year">&#24180;&#35270;&#22270;</option>
+                    </select>
+                </div>
+                <div class="stat-cards">
+                    <div class="stat-card"><div class="num" id="kDone">0</div><div class="lbl">&#26412;&#26376;&#23436;&#25104;</div></div>
+                    <div class="stat-card"><div class="num" id="kCreated">0</div><div class="lbl">&#26412;&#26376;&#21019;&#24314;</div></div>
+                    <div class="stat-card"><div class="num" id="kActive">0</div><div class="lbl">&#27963;&#36291;&#22825;&#25968;</div></div>
+                    <div class="stat-card"><div class="num" id="kRate">&#8212;</div><div class="lbl">&#23436;&#25104;&#29575;</div></div>
+                </div>
+                <div id="calMonth">
+                    <div class="cal">
+                        <div class="cal-weekhead"><span>&#26085;</span><span>&#19968;</span><span>&#20108;</span><span>&#19977;</span><span>&#22235;</span><span>&#20116;</span><span>&#20845;</span></div>
+                        <div class="cal-grid" id="calGrid"></div>
+                    </div>
+                    <div class="cal-detail" id="calDetail"></div>
+                </div>
+                <div id="calYear" style="display:none"><div class="year-grid" id="yearGrid"></div></div>
+            </div>
+        </section>
+    </main>
+    <div class="toast" id="remindToast"></div>
+    <script>
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/login';
 
-        <script>
-            // ── 认证 ──────────────────────────────────────
-            const token = localStorage.getItem('token');
-            if (!token) { window.location.href = '/login'; }
+        const API_QUERY_STREAM = '/api/v1/query/stream';
+        const API_SESSIONS = '/api/v1/sessions';
+        const API_TASKS = '/api/v1/tasks';
+        let activeSessionId = localStorage.getItem('activeSessionId') || '';
+        let taskFilter = 'all';
+        let currentTasks = [];
+        let calYear = new Date().getFullYear();
+        let calMonth = new Date().getMonth();
 
-            function getUserDisplayName() {
-                try {
-                    const payload = JSON.parse(atob(token.split('.')[1]));
-                    return payload.real_name || payload.username || '未命名用户';
-                } catch(e) { return '未命名用户'; }
+        const chatBox = document.getElementById('chatBox');
+        const input = document.getElementById('input');
+        const typing = document.getElementById('typing');
+        const typingLabel = document.getElementById('typingLabel');
+        const sendBtn = document.getElementById('sendBtn');
+        const sessionList = document.getElementById('sessionList');
+
+        function t(s) { return s; }
+        const text = {
+            unnamed: '\u672a\u547d\u540d\u7528\u6237',
+            newChat: '\u65b0\u5bf9\u8bdd',
+            noSessions: '\u6682\u65e0\u5bf9\u8bdd',
+            noMatch: '\u6ca1\u6709\u5339\u914d\u7684\u5bf9\u8bdd',
+            loading: '\u52a0\u8f7d\u4e2d...',
+            noTasks: '\u6682\u65e0\u4efb\u52a1',
+            deleteConfirm: '\u786e\u5b9a\u8981\u5220\u9664\u8fd9\u6761\u5bf9\u8bdd\u5417\uff1f',
+            requestFailed: '\u8bf7\u6c42\u5931\u8d25\uff1a',
+            noResult: '\u672a\u6536\u5230\u67e5\u8be2\u7ed3\u679c',
+            thinking: 'AI \u6b63\u5728\u751f\u6210',
+            searching: '\u6b63\u5728\u68c0\u7d22\u8d44\u6599',
+            reasoning: '\u6b63\u5728\u6574\u7406\u601d\u8def',
+            answering: '\u6b63\u5728\u751f\u6210\u56de\u7b54',
+            checking: '\u6b63\u5728\u6821\u9a8c\u7ed3\u679c'
+        };
+
+        function escapeHtml(value) {
+            const div = document.createElement('div');
+            div.textContent = value == null ? '' : String(value);
+            return div.innerHTML;
+        }
+        function generateSessionId() {
+            return 'web-' + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
+        }
+        function getUserDisplayName() {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                return payload.real_name || payload.username || text.unnamed;
+            } catch (e) {
+                return text.unnamed;
             }
-            document.getElementById('userNameDisplay').textContent = getUserDisplayName();
+        }
+        document.getElementById('userNameDisplay').textContent = getUserDisplayName();
 
-            function logout() {
-                localStorage.removeItem('token');
-                localStorage.removeItem('userName');
-                localStorage.removeItem('activeSessionId');
-                window.location.href = '/login';
-            }
+        function authHeaders(extra) {
+            return Object.assign({ Authorization: 'Bearer ' + token }, extra || {});
+        }
+        function setThinking(message) {
+            typingLabel.textContent = message || text.thinking;
+            typing.classList.add('show');
+        }
+        function hideThinking() {
+            typing.classList.remove('show');
+            typingLabel.textContent = text.thinking;
+        }
+        function normalizeThinking(message) {
+            const raw = String(message || '');
+            if (/\u68c0\u7d22|\u641c\u7d22|\u67e5\u8be2|\u8bfb\u53d6/.test(raw)) return text.searching;
+            if (/\u5206\u6790|\u6574\u7406|\u601d\u8003|\u63a8\u7406/.test(raw)) return text.reasoning;
+            if (/\u56de\u7b54|\u751f\u6210|\u64b0\u5199|\u8f93\u51fa/.test(raw)) return text.answering;
+            if (/\u6821\u9a8c|\u786e\u8ba4|\u6838\u5bf9/.test(raw)) return text.checking;
+            return text.thinking;
+        }
 
-            // ── 会话管理 ──────────────────────────────────
-            const API_QUERY = '/api/v1/query';
-            const API_QUERY_STREAM = '/api/v1/query/stream';
-            const API_SESSIONS = '/api/v1/sessions';
-            let activeSessionId = null;
-            const chatBox = document.getElementById('chatBox');
-            const input = document.getElementById('input');
-            const typing = document.getElementById('typing');
-            const sendBtn = document.getElementById('sendBtn');
-            const sessionList = document.getElementById('sessionList');
-
-            function generateSessionId() {
-                return 'web-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-            }
-
-            async function loadSessionList() {
-                try {
-                    const res = await fetch(API_SESSIONS, {
-                        headers: { 'Authorization': 'Bearer ' + token }
-                    });
-                    const data = await res.json();
-                    if (data.status !== 'ok') return;
-                    let sessions = data.sessions || [];
-                    document.getElementById('sessionCount').textContent = sessions.length ? '(' + sessions.length + ')' : '';
-                    // 搜索过滤
-                    const kw = document.getElementById('sessionSearch').value.trim().toLowerCase();
-                    if (kw) {
-                        sessions = sessions.filter(s => (s.title || '新对话').toLowerCase().indexOf(kw) !== -1);
-                    }
-                    if (sessions.length === 0) {
-                        sessionList.innerHTML = '<div class="no-sessions">' + (kw ? '无匹配对话' : '暂无对话') + '</div>';
-                        return;
-                    }
-                    // 按时间分组：今天 / 昨天 / 更早
-                    const now = new Date();
-                    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                    const yesterdayStart = todayStart - 86400000;
-                    const groups = [{ name: '今天', items: [] }, { name: '昨天', items: [] }, { name: '更早', items: [] }];
-                    sessions.forEach(s => {
-                        const t = s.last_active_at ? new Date(s.last_active_at).getTime() : 0;
-                        if (t >= todayStart) groups[0].items.push(s);
-                        else if (t >= yesterdayStart) groups[1].items.push(s);
-                        else groups[2].items.push(s);
-                    });
-                    let html = '';
-                    groups.forEach(g => {
-                        if (g.items.length === 0) return;
-                        html += '<div class="session-group">' +
-                            '<div class="session-group-head">' + g.name + ' <span>(' + g.items.length + ')</span></div>';
-                        g.items.forEach(s => {
-                            const date = s.last_active_at ? new Date(s.last_active_at).toLocaleDateString('zh-CN') : '';
-                            const isActive = s.session_id === activeSessionId;
-                            html += '<div class="session-item' + (isActive ? ' active' : '') + '" ' +
-                                'onclick="openSession(\\'' + s.session_id + '\\')" ' +
-                                'title="' + (s.title || '新对话').replace(/"/g, '&quot;') + '">' +
-                                '<div class="info">' +
-                                '<div class="title">' + escapeHtml(s.title || '新对话') + '</div>' +
-                                '<div class="meta">' + date + (s.message_count ? ' · ' + s.message_count + ' 条消息' : '') + '</div>' +
-                                '</div>' +
-                                '<button class="del-btn" onclick="event.stopPropagation();deleteSession(\\'' + s.session_id + '\\')" title="删除">×</button>' +
-                                '</div>';
-                        });
-                        html += '</div>';
-                    });
-                    sessionList.innerHTML = html;
-                } catch (e) {
-                    console.error('加载会话列表失败', e);
+        function renderInlineMarkdown(value) {
+            const code = [];
+            let html = escapeHtml(value).replace(/`([^`]+)`/g, (_, v) => {
+                code.push(v);
+                return '@@CODE' + (code.length - 1) + '@@';
+            });
+            html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/@@CODE(\d+)@@/g, (_, i) => '<code>' + code[Number(i)] + '</code>');
+            return html;
+        }
+        function formatMarkdown(value) {
+            const lines = String(value || '').replace(/\r\n/g, '\n').split('\n');
+            const blocks = [];
+            let paragraph = [];
+            let listType = '';
+            let listItems = [];
+            let inCode = false;
+            let codeLang = '';
+            let codeLines = [];
+            const flushParagraph = () => {
+                if (!paragraph.length) return;
+                blocks.push('<p>' + paragraph.join('<br>') + '</p>');
+                paragraph = [];
+            };
+            const flushList = () => {
+                if (!listItems.length) return;
+                blocks.push('<' + listType + '>' + listItems.join('') + '</' + listType + '>');
+                listItems = [];
+                listType = '';
+            };
+            const flushCode = () => {
+                blocks.push('<pre data-lang="' + escapeHtml(codeLang) + '"><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+                codeLang = '';
+                codeLines = [];
+            };
+            for (let i = 0; i < lines.length; i++) {
+                const raw = lines[i];
+                const line = raw.trim();
+                if (inCode) {
+                    if (/^```/.test(line)) { flushCode(); inCode = false; } else { codeLines.push(raw); }
+                    continue;
                 }
-            }
-
-            function escapeHtml(str) {
-                const div = document.createElement('div');
-                div.textContent = str;
-                return div.innerHTML;
-            }
-
-            async function openSession(sessionId) {
-                if (activeSessionId === sessionId) return;
-                activeSessionId = sessionId;
-                localStorage.setItem('activeSessionId', sessionId);
-                chatBox.innerHTML = '<div style="text-align:center;padding:40px;color:#bbb;">加载中...</div>';
-                try {
-                    const res = await fetch(API_SESSIONS + '/' + sessionId + '/messages', {
-                        headers: { 'Authorization': 'Bearer ' + token }
-                    });
-                    const data = await res.json();
-                    chatBox.innerHTML = '';
-                    const msgs = data.messages || [];
-                    if (msgs.length === 0) {
-                        chatBox.innerHTML = '<div class="welcome"><p>开始新对话吧</p></div>';
-                    } else {
-                        msgs.forEach(m => {
-                            const role = m.role === 'user' ? 'user' : 'assistant';
-                            const content = role === 'assistant' ? formatAssistantContent(m.content) : escapeHtml(m.content);
-                            const extraClass = 'history';
-                            addMessageEl(role, content, extraClass, m.content);
-                        });
-                    }
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                } catch (e) {
-                    chatBox.innerHTML = '<div class="error-msg">加载消息失败：' + e.message + '</div>';
+                if (/^```/.test(line)) { flushParagraph(); flushList(); inCode = true; codeLang = line.slice(3).trim(); continue; }
+                if (!line) { flushParagraph(); flushList(); continue; }
+                if (/^#{1,6}\s+/.test(line)) {
+                    flushParagraph(); flushList();
+                    const level = Math.min(3, line.match(/^#{1,6}/)[0].length);
+                    blocks.push('<h' + level + '>' + renderInlineMarkdown(line.replace(/^#{1,6}\s+/, '')) + '</h' + level + '>');
+                    continue;
                 }
+                if (/^>\s?/.test(line)) { flushParagraph(); flushList(); blocks.push('<blockquote>' + renderInlineMarkdown(line.replace(/^>\s?/, '')) + '</blockquote>'); continue; }
+                if (/^[-*+]\s+/.test(line)) {
+                    flushParagraph(); if (listType && listType !== 'ul') flushList();
+                    listType = 'ul'; listItems.push('<li>' + renderInlineMarkdown(line.replace(/^[-*+]\s+/, '')) + '</li>'); continue;
+                }
+                if (/^\d+\.\s+/.test(line)) {
+                    flushParagraph(); if (listType && listType !== 'ol') flushList();
+                    listType = 'ol'; listItems.push('<li>' + renderInlineMarkdown(line.replace(/^\d+\.\s+/, '')) + '</li>'); continue;
+                }
+                const next = lines[i + 1] || '';
+                if (/\|/.test(line) && /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(next)) {
+                    flushParagraph(); flushList();
+                    const headers = line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(x => x.trim());
+                    let table = '<div class="table-wrap"><table><thead><tr>' + headers.map(h => '<th>' + renderInlineMarkdown(h) + '</th>').join('') + '</tr></thead><tbody>';
+                    i += 2;
+                    while (i < lines.length && /\|/.test(lines[i])) {
+                        const row = lines[i].trim();
+                        if (!row) break;
+                        const cells = row.replace(/^\|/, '').replace(/\|$/, '').split('|').map(x => x.trim());
+                        table += '<tr>' + headers.map((_, idx) => '<td>' + renderInlineMarkdown(cells[idx] || '') + '</td>').join('') + '</tr>';
+                        i++;
+                    }
+                    i--;
+                    blocks.push(table + '</tbody></table></div>');
+                    continue;
+                }
+                flushList();
+                paragraph.push(renderInlineMarkdown(raw));
+            }
+            flushParagraph();
+            flushList();
+            if (inCode) flushCode();
+            return blocks.join('\n');
+        }
+        function formatTable(rows) {
+            if (!rows || !rows.length) return '\u65e0\u6570\u636e';
+            const keys = Object.keys(rows[0]);
+            let html = '<div class="table-wrap"><table><thead><tr>' + keys.map(k => '<th>' + escapeHtml(k) + '</th>').join('') + '</tr></thead><tbody>';
+            rows.slice(0, 20).forEach(row => {
+                html += '<tr>' + keys.map(k => '<td>' + escapeHtml(row[k] == null ? '-' : row[k]) + '</td>').join('') + '</tr>';
+            });
+            html += '</tbody></table></div>';
+            if (rows.length > 20) html += '<p>\u5171 ' + rows.length + ' \u6761\uff0c\u4ec5\u663e\u793a\u524d 20 \u6761</p>';
+            return html;
+        }
+        function assistantRawText(data) {
+            if (!data) return '';
+            if (data.status === 'error' || data.status === 'clarify') return data.message || '';
+            if (data.preview === true) return formatTaskPlanRaw(data);
+            if (!data.data || !data.data.length) return data.message || '';
+            const keys = Object.keys(data.data[0] || {});
+            let md = data.message ? data.message + '\n\n' : '';
+            md += '| ' + keys.join(' | ') + ' |\n';
+            md += '| ' + keys.map(() => '---').join(' | ') + ' |\n';
+            data.data.forEach(row => {
+                md += '| ' + keys.map(k => String(row[k] == null ? '' : row[k]).replace(/\n/g, ' ')).join(' | ') + ' |\n';
+            });
+            return md;
+        }
+        function formatResult(data) {
+            if (data.preview === true) return formatTaskPlanPreview(data);
+            if (data.status === 'error' || data.status === 'clarify') {
+                return '<div class="error-msg">' + escapeHtml(data.message || '\u62b1\u6b49\uff0c\u65e0\u6cd5\u5904\u7406\u60a8\u7684\u8bf7\u6c42') + '</div>';
+            }
+            return formatMarkdown(assistantRawText(data));
+        }
+        function addMessageEl(role, content, extraClass, rawText) {
+            const div = document.createElement('div');
+            div.className = 'message ' + role + (extraClass ? ' ' + extraClass : '');
+            div.innerHTML = '<div class="avatar">' + (role === 'user' ? '\u6211' : 'AI') + '</div><div class="msg-body"><div class="content">' + content + '</div><button class="copy-btn" title="\u590d\u5236">Copy</button></div>';
+            const btn = div.querySelector('.copy-btn');
+            if (rawText) btn.dataset.text = rawText; else btn.style.display = 'none';
+            btn.addEventListener('click', () => copyText(btn.dataset.text || ''));
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return div;
+        }
+        function addMessage(role, content, extraClass, rawText) {
+            return addMessageEl(role, content, extraClass || '', rawText);
+        }
+        async function copyText(value) {
+            try {
+                if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value);
+                else {
+                    const ta = document.createElement('textarea');
+                    ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                }
+            } catch (e) {}
+        }
+
+        async function loadSessionList() {
+            try {
+                const res = await fetch(API_SESSIONS, { headers: authHeaders() });
+                const data = await res.json();
+                let sessions = data.sessions || [];
+                document.getElementById('sessionCount').textContent = sessions.length ? '(' + sessions.length + ')' : '';
+                const kw = document.getElementById('sessionSearch').value.trim().toLowerCase();
+                if (kw) sessions = sessions.filter(s => (s.title || text.newChat).toLowerCase().includes(kw));
+                if (!sessions.length) { sessionList.innerHTML = '<div class="empty">' + (kw ? text.noMatch : text.noSessions) + '</div>'; return; }
+                const todayStart = new Date(new Date().setHours(0,0,0,0)).getTime();
+                const yesterdayStart = todayStart - 86400000;
+                const groups = [{ name: '\u4eca\u5929', items: [] }, { name: '\u6628\u5929', items: [] }, { name: '\u66f4\u65e9', items: [] }];
+                sessions.forEach(s => {
+                    const ts = s.last_active_at ? new Date(s.last_active_at).getTime() : 0;
+                    (ts >= todayStart ? groups[0] : ts >= yesterdayStart ? groups[1] : groups[2]).items.push(s);
+                });
+                sessionList.innerHTML = groups.filter(g => g.items.length).map(g => (
+                    '<div class="session-group"><div class="session-group-head">' + g.name + ' <span>(' + g.items.length + ')</span></div>' +
+                    g.items.map(s => {
+                        const title = s.title || text.newChat;
+                        const meta = (s.last_active_at ? new Date(s.last_active_at).toLocaleDateString('zh-CN') : '') + (s.message_count ? ' · ' + s.message_count + ' \u6761\u6d88\u606f' : '');
+                        return '<div class="session-item' + (s.session_id === activeSessionId ? ' active' : '') + '" data-id="' + escapeHtml(s.session_id) + '"><div class="session-info"><div class="session-title">' + escapeHtml(title) + '</div><div class="session-meta">' + escapeHtml(meta) + '</div></div><button class="icon-btn danger" data-del="' + escapeHtml(s.session_id) + '" title="\u5220\u9664">×</button></div>';
+                    }).join('') + '</div>'
+                )).join('');
+            } catch (e) {
+                sessionList.innerHTML = '<div class="empty">' + text.noSessions + '</div>';
+            }
+        }
+        async function openSession(sessionId) {
+            if (!sessionId) return;
+            activeSessionId = sessionId;
+            localStorage.setItem('activeSessionId', sessionId);
+            chatBox.innerHTML = '<div class="empty">' + text.loading + '</div>';
+            try {
+                const res = await fetch(API_SESSIONS + '/' + encodeURIComponent(sessionId) + '/messages', { headers: authHeaders() });
+                const data = await res.json();
+                chatBox.innerHTML = '';
+                const msgs = data.messages || [];
+                if (!msgs.length) chatBox.innerHTML = '<div class="welcome"><p>' + text.newChat + '</p></div>';
+                msgs.forEach(m => addMessageEl(m.role === 'user' ? 'user' : 'assistant', m.role === 'user' ? escapeHtml(m.content) : formatMarkdown(m.content), 'history', m.content));
+            } catch (e) {
+                chatBox.innerHTML = '<div class="error-msg">\u52a0\u8f7d\u6d88\u606f\u5931\u8d25\uff1a' + escapeHtml(e.message) + '</div>';
+            }
+            loadSessionList();
+        }
+        async function deleteSession(sessionId) {
+            if (!confirm(text.deleteConfirm)) return;
+            try {
+                await fetch(API_SESSIONS + '/' + encodeURIComponent(sessionId), { method: 'DELETE', headers: authHeaders() });
+                if (activeSessionId === sessionId) newChat();
                 loadSessionList();
-                input.focus();
+            } catch (e) {
+                alert('\u5220\u9664\u5931\u8d25: ' + e.message);
             }
+        }
+        function newChat() {
+            activeSessionId = generateSessionId();
+            localStorage.setItem('activeSessionId', activeSessionId);
+            chatBox.innerHTML = '<div class="welcome"><h2>' + text.newChat + '</h2><p>\u8f93\u5165\u95ee\u9898\u5f00\u59cb\u5bf9\u8bdd\u3002</p></div>';
+            loadSessionList();
+            input.focus();
+        }
 
-            function newChat() {
+        function formatTaskPlanRaw(data) {
+            const items = data.data || [];
+            return (data.message ? data.message + '\n\n' : '') + items.map(it => '- ' + it.title).join('\n');
+        }
+        function formatTaskPlanPreview(data) {
+            const items = data.data || [];
+            const attr = JSON.stringify(items).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+            let html = '<div class="task-plan-preview">';
+            if (data.message) html += '<p>' + escapeHtml(data.message) + '</p>';
+            html += '<div class="plan-list">' + items.map((it, i) => '<label class="task-item"><input type="checkbox" class="plan-check" checked data-idx="' + i + '"><span>' + escapeHtml(it.title) + '</span><span class="session-meta">' + escapeHtml(it.date + (it.time ? ' ' + it.time : '')) + '</span></label>').join('') + '</div>';
+            html += '<div style="display:flex;gap:8px;margin-top:10px"><button class="send-btn" data-plan="' + attr + '" onclick="confirmTaskPlan(this)">\u786e\u8ba4\u843d\u5e93</button><button class="task-tab" data-cancel-plan="1">\u53d6\u6d88</button></div></div>';
+            return html;
+        }
+        async function confirmTaskPlan(btn) {
+            const box = btn.closest('.task-plan-preview');
+            const items = JSON.parse(btn.dataset.plan || '[]');
+            const checked = [];
+            box.querySelectorAll('.plan-check:checked').forEach(cb => checked.push(items[Number(cb.dataset.idx)]));
+            if (!checked.length) return alert('\u8bf7\u81f3\u5c11\u52fe\u9009\u4e00\u4e2a\u5b50\u4efb\u52a1');
+            btn.disabled = true;
+            try {
+                const res = await fetch(API_TASKS + '/plan', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ items: checked }) });
+                const data = await res.json();
+                if (res.ok && data.status === 'ok') { box.innerHTML = '<span style="color:var(--green)">\u5df2\u521b\u5efa ' + data.count + ' \u4e2a\u5b50\u4efb\u52a1</span>'; loadTasks(); }
+                else { alert('\u843d\u5e93\u5931\u8d25\uff1a' + (data.message || res.status)); btn.disabled = false; }
+            } catch (e) { alert('\u843d\u5e93\u5931\u8d25\uff1a' + e.message); btn.disabled = false; }
+        }
+
+        async function send() {
+            const q = input.value.trim();
+            if (!q) return;
+            const intent = window._quickIntent || '';
+            window._quickIntent = '';
+            if (!activeSessionId) {
                 activeSessionId = generateSessionId();
                 localStorage.setItem('activeSessionId', activeSessionId);
-                chatBox.innerHTML = '<div class="welcome"><h2>新对话</h2><p>输入你的问题开始对话</p></div>';
-                loadSessionList();
+            }
+            const welcome = chatBox.querySelector('.welcome');
+            if (welcome) welcome.remove();
+            addMessage('user', escapeHtml(q), '', q);
+            input.value = '';
+            input.disabled = true;
+            sendBtn.disabled = true;
+            setThinking(text.thinking);
+            try {
+                const url = API_QUERY_STREAM + '?question=' + encodeURIComponent(q) + '&session_id=' + encodeURIComponent(activeSessionId) + '&intent=' + encodeURIComponent(intent);
+                const res = await fetch(url, { headers: authHeaders() });
+                if (!res.ok || !res.body) throw new Error('\u6d41\u5f0f\u8bf7\u6c42\u5931\u8d25\uff1a' + res.status);
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
+                let finalData = null;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    let idx;
+                    while ((idx = buf.indexOf('\n\n')) !== -1) {
+                        const raw = buf.slice(0, idx);
+                        buf = buf.slice(idx + 2);
+                        const dataLine = raw.split('\n').find(line => line.indexOf('data:') === 0);
+                        if (!dataLine) continue;
+                        let evt;
+                        try { evt = JSON.parse(dataLine.slice(5).trim()); } catch (e) { continue; }
+                        if (evt.type === 'progress') setThinking(normalizeThinking(evt.message));
+                        if (evt.type === 'result') finalData = evt.data;
+                    }
+                }
+                if (finalData) {
+                    if (finalData.task_created) loadTasks();
+                    // 重新读取已落库的会话消息，确保当前页和刷新后的展示完全一致。
+                    await openSession(activeSessionId);
+                    await openSession(activeSessionId);
+                } else {
+                    addMessage('assistant', '<div class="error-msg">' + text.noResult + '</div>');
+                }
+            } catch (e) {
+                addMessage('assistant', '<div class="error-msg">' + text.requestFailed + escapeHtml(e.message) + '</div>');
+            } finally {
+                hideThinking();
+                input.disabled = false;
+                sendBtn.disabled = false;
                 input.focus();
             }
+        }
 
-            async function deleteSession(sessionId) {
-                if (!confirm('确定要删除这条对话吗？')) return;
-                try {
-                    await fetch(API_SESSIONS + '/' + sessionId, {
-                        method: 'DELETE',
-                        headers: { 'Authorization': 'Bearer ' + token }
-                    });
-                    if (activeSessionId === sessionId) {
-                        newChat();
-                    }
-                    loadSessionList();
-                } catch (e) {
-                    alert('删除失败: ' + e.message);
-                }
-            }
-
-            // ── 消息渲染 ──────────────────────────────────
-            function addMessageEl(role, content, extraClass, rawText) {
-                const div = document.createElement('div');
-                div.className = 'message ' + role + (extraClass ? ' ' + extraClass : '');
-                const avatar = role === 'user' ? '我' : 'AI';
-                const copyBtn = '<button class="copy-btn" title="复制" onclick="copyMessage(this)">' +
-                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-                    '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>' +
-                    '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>';
-                div.innerHTML = '<div class="avatar">' + avatar + '</div>' +
-                    '<div class="msg-body"><div class="content">' + content + '</div>' + copyBtn + '</div>';
-                const btn = div.querySelector('.copy-btn');
-                if (rawText) {
-                    btn.dataset.text = rawText;
-                } else {
-                    btn.style.visibility = 'hidden';
-                }
-                chatBox.appendChild(div);
-                chatBox.scrollTop = chatBox.scrollHeight;
-            }
-
-            function addMessage(role, content, extraClass, rawText) {
-                addMessageEl(role, content, extraClass || '', rawText);
-            }
-
-            function formatAssistantContent(text) {
-                // 尝试解析 JSON（数据表格）
-                try {
-                    const data = JSON.parse(text);
-                    if (Array.isArray(data) && data.length > 0) {
-                        return formatTable(data);
-                    }
-                } catch(e) {}
-                // 历史消息按标准 Markdown 表格存储，这里渲染成 HTML 表格
-                return formatMarkdown(text || '');
-            }
-
-            function formatMarkdown(text) {
-                const lines = text.split('\\n');
-                let html = '';
-                let i = 0;
-                while (i < lines.length) {
-                    const line = lines[i];
-                    const isTable = line.trim().indexOf('|') === 0 && i + 1 < lines.length && lines[i + 1].indexOf('---') !== -1;
-                    if (isTable) {
-                        const headers = line.trim().slice(1, -1).split('|').map(c => c.trim());
-                        let t = '<div class="table-wrap"><table><tr>';
-                        headers.forEach(h => { t += '<th>' + escapeHtml(h) + '</th>'; });
-                        t += '</tr>';
-                        i += 2;
-                        while (i < lines.length && lines[i].trim().indexOf('|') === 0) {
-                            const cells = lines[i].trim().slice(1, -1).split('|').map(c => c.trim());
-                            t += '<tr>';
-                            headers.forEach((_, idx) => { t += '<td>' + escapeHtml(cells[idx] !== undefined ? cells[idx] : '') + '</td>'; });
-                            t += '</tr>';
-                            i++;
-                        }
-                        t += '</table></div>';
-                        html += t;
-                        continue;
-                    }
-                    html += escapeHtml(line);
-                    html += '\\n';
-                    i++;
-                }
-                return html;
-            }
-
-            function formatTable(rows) {
-                if (!rows || rows.length === 0) return '无数据';
-                let html = '<div class="table-wrap"><table><tr>';
-                const keys = Object.keys(rows[0]);
-                keys.forEach(k => html += '<th>' + escapeHtml(String(k)) + '</th>');
-                html += '</tr>';
-                rows.slice(0, 20).forEach(row => {
-                    html += '<tr>';
-                    keys.forEach(k => {
-                        const v = row[k];
-                        html += '<td>' + (v !== null && v !== undefined ? escapeHtml(String(v)) : '-') + '</td>';
-                    });
-                    html += '</tr>';
-                });
-                html += '</table></div>';
-                if (rows.length > 20) html += '<p style="color:#999;margin-top:6px;">共 ' + rows.length + ' 条，仅显示前 20 条</p>';
-                return html;
-            }
-
-            function formatResult(data) {
-                if (data.preview === true) return formatTaskPlanPreview(data);
-                if (data.status === 'error' || data.status === 'clarify') {
-                    return '<div class="error-msg">' + escapeHtml(data.message || '抱歉，无法处理您的请求') + '</div>';
-                }
-                // 实时展示与复制、历史回看一致：一律渲染为标准 Markdown 文档
-                return formatMarkdown(assistantRawText(data) || '');
-            }
-
-            // 复制按钮：原始文本（标准 Markdown 表格，与历史回看保持一致）
-            function assistantRawText(data) {
-                if (!data) return '';
-                if (data.status === 'error' || data.status === 'clarify') {
-                    return data.message || '';
-                }
-                if (data.preview === true) {
-                    const items = data.data || [];
-                    let txt = data.message || '';
-                    if (txt) txt += '\\n\\n';
-                    txt += items.map(function (it) { return '- ' + it.title; }).join('\\n');
-                    return txt;
-                }
-                if (!data.data || data.data.length === 0) {
-                    return data.message || '';
-                }
-                const rows = data.data;
-                const keys = Object.keys(rows[0] || {});
-                // 与后端 _data_to_markdown 一致：单元格中的换行转空格，保证表格结构不坏
-                const cell = v => (v === null || v === undefined ? '' : String(v).replace(/\\n/g, ' '));
-                let md = '';
-                if (data.message) md += data.message + '\\n\\n';
-                md += '| ' + keys.join(' | ') + ' |\\n';
-                md += '| ' + keys.map(() => '---').join(' | ') + ' |\\n';
-                rows.forEach(r => {
-                    md += '| ' + keys.map(k => cell(r[k])).join(' | ') + ' |\\n';
-                });
-                return md;
-            }
-
-            // ── 任务规划预览（确认落库）──────────────────
-            function formatTaskPlanPreview(data) {
-                const items = data.data || [];
-                const msg = data.message || '';
-                const itemsJsonAttr = JSON.stringify(items).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-                let html = '<div class="task-plan-preview">';
-                if (msg) html += '<div class="plan-msg">' + escapeHtml(msg) + '</div>';
-                html += '<div class="plan-list">';
-                items.forEach(function (it, i) {
-                    html += '<label class="plan-item">' +
-                        '<input type="checkbox" class="plan-check" checked data-idx="' + i + '">' +
-                        '<span class="plan-title">' + escapeHtml(it.title) + '</span>' +
-                        '<span class="plan-date">' + escapeHtml(it.date + (it.time ? ' ' + it.time : '')) + '</span>' +
-                        '</label>';
-                });
-                html += '</div>';
-                html += '<div class="plan-actions">' +
-                    '<button class="plan-confirm-btn" data-items="' + itemsJsonAttr + '" onclick="confirmTaskPlan(this)">✅ 确认落库</button>' +
-                    '<button class="plan-cancel-btn" onclick="cancelTaskPlan(this)">取消</button>' +
-                    '</div>';
-                html += '</div>';
-                return html;
-            }
-
-            async function confirmTaskPlan(btn, items) {
-                items = items || JSON.parse(btn.dataset.items || '[]');
-                const box = btn.closest('.task-plan-preview');
-                const checked = [];
-                box.querySelectorAll('.plan-check:checked').forEach(function (cb) {
-                    checked.push(items[parseInt(cb.dataset.idx, 10)]);
-                });
-                if (checked.length === 0) {
-                    alert('请至少勾选一个子任务');
-                    return;
-                }
-                btn.disabled = true;
-                try {
-                    const res = await fetch(API_TASKS + '/plan', {
-                        method: 'POST',
-                        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ items: checked })
-                    });
-                    const data = await res.json();
-                    if (res.ok && data.status === 'ok') {
-                        box.querySelector('.plan-actions').innerHTML = '<span class="plan-success">✅ 已创建 ' + data.count + ' 个子任务</span>';
-                        loadTasks();
-                    } else {
-                        alert('落库失败：' + (data.message || ('HTTP ' + res.status)));
-                        btn.disabled = false;
-                    }
-                } catch (e) {
-                    alert('落库失败：' + e.message);
-                    btn.disabled = false;
-                }
-            }
-
-            function cancelTaskPlan(btn) {
-                const box = btn.closest('.task-plan-preview');
-                const actions = box.querySelector('.plan-actions');
-                if (actions) actions.style.display = 'none';
-            }
-
-            // 兼容非 HTTPS（http://ip:port 下 navigator.clipboard 不可用，用 execCommand 兜底）
-            function copyText(text) {
-                if (navigator.clipboard && window.isSecureContext) {
-                    return navigator.clipboard.writeText(text);
-                }
-                const ta = document.createElement('textarea');
-                ta.value = text;
-                ta.style.position = 'fixed';
-                ta.style.opacity = '0';
-                document.body.appendChild(ta);
-                ta.select();
-                let ok = false;
-                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-                document.body.removeChild(ta);
-                return ok ? Promise.resolve() : Promise.reject(new Error('复制失败'));
-            }
-
-            function copyMessage(btn) {
-                const text = btn.dataset.text || '';
-                if (!text) return;
-                copyText(text).then(() => {
-                    btn.classList.add('copied');
-                    setTimeout(() => btn.classList.remove('copied'), 1500);
-                }).catch(() => {
-                    btn.classList.add('copied');
-                    btn.style.color = '#ff4d4f';
-                    setTimeout(() => { btn.classList.remove('copied'); btn.style.color = ''; }, 1500);
-                });
-            }
-
-            // ── 查询 ──────────────────────────────────────
-            function askQuick(question, intent) {
-                input.value = question;
-                window._quickIntent = intent || '';
-                send();
-            }
-
-            async function send() {
-                const q = input.value.trim();
-                if (!q) return;
-
-                const intent = window._quickIntent || '';
-                window._quickIntent = '';
-
-                // 如果没有活跃会话，自动创建
-                if (!activeSessionId) {
-                    activeSessionId = generateSessionId();
-                    localStorage.setItem('activeSessionId', activeSessionId);
-                }
-
-                // 移除欢迎页
-                const welcome = chatBox.querySelector('.welcome');
-                if (welcome) welcome.remove();
-
-                addMessage('user', escapeHtml(q), '', q);
-                input.value = '';
-                input.disabled = true;
-                sendBtn.disabled = true;
-                typing.classList.add('show');
-                typing.textContent = 'AI 正在思考...';
-
-                try {
-                    // SSE 流式请求：分阶段推送进度，最后返回结果
-                    const res = await fetch(API_QUERY_STREAM +
-                        '?question=' + encodeURIComponent(q) +
-                        '&session_id=' + encodeURIComponent(activeSessionId) +
-                        '&intent=' + encodeURIComponent(intent), {
-                        headers: { 'Authorization': 'Bearer ' + token }
-                    });
-                    if (!res.ok || !res.body) {
-                        throw new Error('流式请求失败：' + res.status);
-                    }
-                    const reader = res.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buf = '';
-                    let finalData = null;
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        buf += decoder.decode(value, { stream: true });
-                        // 逐条解析 SSE 事件（SSE 事件以双换行分隔）
-                        let idx;
-                        while ((idx = buf.indexOf('\\n\\n')) !== -1) {
-                            const raw = buf.slice(0, idx);
-                            buf = buf.slice(idx + 2);
-                            const dataLine = raw.split('\\n').find(l => l.indexOf('data:') === 0);
-                            if (!dataLine) continue;
-                            let evt;
-                            try { evt = JSON.parse(dataLine.slice(5).trim()); } catch (e) { continue; }
-                            if (evt.type === 'progress') {
-                                typing.textContent = evt.message;
-                            } else if (evt.type === 'result') {
-                                finalData = evt.data;
-                            }
-                        }
-                    }
-                    if (finalData) {
-                        addMessage('assistant', formatResult(finalData), '', assistantRawText(finalData));
-                        // 对话中创建了任务：刷新左侧任务列表
-                        if (finalData.task_created) loadTasks();
-                    } else {
-                        addMessage('assistant', '<div class="error-msg">未收到查询结果</div>');
-                    }
-                    // 刷新侧边栏列表
-                    loadSessionList();
-                } catch (e) {
-                    addMessage('assistant', '<div class="error-msg">请求失败：' + escapeHtml(e.message) + '</div>');
-                } finally {
-                    typing.classList.remove('show');
-                    typing.textContent = 'AI 正在思考...';
-                    input.disabled = false;
-                    sendBtn.disabled = false;
-                    input.focus();
-                }
-            }
-
-            // ── 任务管理 ──────────────────────────────────
-            const API_TASKS = '/api/v1/tasks';
-            let taskFilter = 'all';
-            let currentTasks = [];
-            let calYear = new Date().getFullYear(), calMonth = new Date().getMonth();
-
-            async function loadTasks() {
+        async function loadTasks() {
+            try {
                 const q = document.getElementById('taskSearch').value.trim();
-                const res = await fetch(`${API_TASKS}?filter=${taskFilter}&q=${encodeURIComponent(q)}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+                const res = await fetch(API_TASKS + '?filter=' + encodeURIComponent(taskFilter) + '&q=' + encodeURIComponent(q), { headers: authHeaders() });
                 const data = await res.json();
                 renderTaskList(data.tasks || []);
+            } catch (e) {
+                document.getElementById('taskList').innerHTML = '<div class="empty">' + text.noTasks + '</div>';
             }
-            function renderTaskList(tasks) {
-                currentTasks = tasks;
-                const el = document.getElementById('taskList');
-                document.getElementById('taskCount').textContent = tasks.length ? `(${tasks.length})` : '';
-                if (!tasks.length) {
-                    el.innerHTML = '<div style="padding:20px;text-align:center;color:#bbb;font-size:12px;">暂无任务</div>';
-                    return;
-                }
-                const now = new Date();
-                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                const tomorrowStart = todayStart + 86400000;
-                const dayAfterStart = tomorrowStart + 86400000;
-                function groupOf(t) {
-                    if (t.overdue) return { key: 'overdue', name: '已逾期' };
-                    if (!t.deadline) return { key: 'none', name: '无截止日期' };
-                    const d = new Date(t.deadline).getTime();
-                    if (d < todayStart) return { key: 'overdue', name: '已逾期' };
-                    if (d < tomorrowStart) return { key: 'today', name: '今天' };
-                    if (d < dayAfterStart) return { key: 'tomorrow', name: '明天' };
-                    return { key: 'later', name: '更晚' };
-                }
-                const order = ['overdue', 'none', 'today', 'tomorrow', 'later'];
-                const groups = {};
-                tasks.forEach(t => {
-                    const g = groupOf(t);
-                    (groups[g.key] = groups[g.key] || { name: g.name, items: [] }).items.push(t);
-                });
-                let html = '';
-                order.forEach(key => {
-                    const g = groups[key];
-                    if (!g) return;
-                    html += '<div class="task-group">' +
-                        '<div class="task-group-head">' + g.name + ' <span>(' + g.items.length + ')</span></div>';
-                    g.items.forEach(t => {
-                        html += '<div class="task-item" onclick="taskMenu(' + t.task_id + ')">' +
-                            '<span class="dot ' + (t.overdue ? 'overdue' : t.status) + '"></span>' +
-                            '<span style="flex:1;font-size:12px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(t.title) + '</span>' +
-                            '</div>';
-                    });
-                    html += '</div>';
-                });
-                el.innerHTML = html;
+        }
+        function renderTaskList(tasks) {
+            currentTasks = tasks;
+            document.getElementById('taskCount').textContent = tasks.length ? '(' + tasks.length + ')' : '';
+            const el = document.getElementById('taskList');
+            if (!tasks.length) { el.innerHTML = '<div class="empty">' + text.noTasks + '</div>'; return; }
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const tomorrow = today + 86400000;
+            const afterTomorrow = tomorrow + 86400000;
+            function groupOf(task) {
+                if (task.overdue) return { key: 'overdue', name: '\u5df2\u8fc7\u671f' };
+                if (!task.deadline) return { key: 'none', name: '\u65e0\u622a\u6b62\u65e5\u671f' };
+                const t = new Date(task.deadline).getTime();
+                if (t < today) return { key: 'overdue', name: '\u5df2\u8fc7\u671f' };
+                if (t < tomorrow) return { key: 'today', name: '\u4eca\u5929' };
+                if (t < afterTomorrow) return { key: 'tomorrow', name: '\u660e\u5929' };
+                return { key: 'later', name: '\u66f4\u665a' };
             }
-            function switchTaskTab(filter) {
-                taskFilter = filter;
-                document.querySelectorAll('.task-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
+            const order = ['overdue', 'none', 'today', 'tomorrow', 'later'];
+            const groups = {};
+            tasks.forEach(task => {
+                const g = groupOf(task);
+                (groups[g.key] = groups[g.key] || { name: g.name, items: [] }).items.push(task);
+            });
+            el.innerHTML = order.map(key => {
+                const g = groups[key];
+                if (!g) return '';
+                return '<div><div class="task-group-head">' + g.name + ' <span>(' + g.items.length + ')</span></div>' + g.items.map(task => '<div class="task-item" data-task="' + task.task_id + '"><span class="dot ' + (task.overdue ? 'overdue' : task.status) + '"></span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(task.title) + '</span></div>').join('') + '</div>';
+            }).join('');
+        }
+        async function addTask() {
+            const el = document.getElementById('taskAddInput');
+            const title = el.value.trim();
+            if (!title) return;
+            try {
+                const res = await fetch(API_TASKS, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ title }) });
+                const data = await res.json();
+                if (res.ok && data.status === 'ok') { el.value = ''; loadTasks(); }
+                else alert('\u521b\u5efa\u5931\u8d25\uff1a' + (data.message || res.status));
+            } catch (e) { alert('\u521b\u5efa\u5931\u8d25\uff1a' + e.message); }
+        }
+        async function taskMenu(id) {
+            const task = currentTasks.find(x => String(x.task_id) === String(id));
+            if (!task) return;
+            const next = task.status === 'done' ? 'pending' : 'done';
+            try {
+                await fetch(API_TASKS + '/' + encodeURIComponent(id), { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ status: next }) });
                 loadTasks();
-            }
-            async function addTask() {
-                const inp = document.getElementById('taskAddInput');
-                const title = inp.value.trim();
-                if (!title) return;
-                try {
-                    const res = await fetch(API_TASKS, {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ title })
-                    });
-                    const data = await res.json();
-                    if (res.ok && data.status === 'ok') {
-                        inp.value = '';
-                        loadTasks();
-                    } else {
-                        alert('创建失败：' + (data.message || ('HTTP ' + res.status)));
-                    }
-                } catch (e) { alert('创建失败：' + e.message); }
-            }
-            function toggleTaskPanel() {
-                const list = document.getElementById('taskList');
-                const hidden = list.style.display === 'none';
-                list.style.display = hidden ? '' : 'none';
-                document.getElementById('taskArrow').textContent = hidden ? '▾' : '▸';
-            }
-            function toggleSessionList() {
-                const list = document.getElementById('sessionList');
-                const hidden = list.style.display === 'none';
-                list.style.display = hidden ? '' : 'none';
-                document.getElementById('sessionArrow').textContent = hidden ? '▾' : '▸';
-            }
-            async function taskMenu(id) {
-                // 点击任务：在「待办」与「已完成」之间切换状态
-                const t = currentTasks.find(x => x.task_id === id);
-                if (!t) return;
-                const next = t.status === 'done' ? 'pending' : 'done';
-                try {
-                    await fetch(`${API_TASKS}/${id}`, {
-                        method: 'PATCH',
-                        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ status: next })
-                    });
-                    loadTasks();
-                } catch (e) { console.error('切换任务状态失败', e); }
-            }
+            } catch (e) { console.error('\u5207\u6362\u4efb\u52a1\u72b6\u6001\u5931\u8d25', e); }
+        }
 
-            // ── 工作记录（日历视图）──────────────────────
-            function pad2(n) { return n < 10 ? '0' + n : '' + n; }
-            function switchMainView(v) {
-                document.getElementById('chatArea').style.display = v === 'chat' ? '' : 'none';
-                document.getElementById('calPanel').style.display = v === 'calendar' ? '' : 'none';
-                if (v === 'calendar') renderMonth();
+        function pad2(n) { return n < 10 ? '0' + n : String(n); }
+        function switchMainView(view) {
+            document.getElementById('chatArea').style.display = view === 'chat' ? '' : 'none';
+            document.getElementById('calPanel').style.display = view === 'calendar' ? '' : 'none';
+            if (view === 'calendar') renderMonth();
+        }
+        async function renderMonth() {
+            document.getElementById('calTitle').textContent = calYear + '\u5e74 ' + (calMonth + 1) + '\u6708';
+            const res = await fetch(API_TASKS + '/worklog?year=' + calYear + '&month=' + (calMonth + 1), { headers: authHeaders() });
+            const data = await res.json();
+            const done = data.done_by_day || {};
+            const created = data.created_by_day || {};
+            const firstDow = new Date(calYear, calMonth, 1).getDay();
+            const dim = new Date(calYear, calMonth + 1, 0).getDate();
+            const dimPrev = new Date(calYear, calMonth, 0).getDate();
+            const now = new Date();
+            let cells = '';
+            for (let i = 0; i < 42; i++) {
+                let y = calYear, m = calMonth, d, other = false;
+                if (i < firstDow) { m = calMonth - 1; if (m < 0) { m = 11; y--; } d = dimPrev - firstDow + 1 + i; other = true; }
+                else if (i >= firstDow + dim) { m = calMonth + 1; if (m > 11) { m = 0; y++; } d = i - firstDow - dim + 1; other = true; }
+                else d = i - firstDow + 1;
+                const key = y + '-' + pad2(m + 1) + '-' + pad2(d);
+                const isToday = y === now.getFullYear() && m === now.getMonth() && d === now.getDate();
+                cells += '<div class="cal-cell' + (other ? ' other' : '') + (isToday ? ' today' : '') + '" data-day="' + key + '"><span class="day-num">' + d + '</span>' + (other ? '' : '<div class="cell-stats"><span class="c-done">' + (done[key] || 0) + '</span><span class="c-created">' + (created[key] || 0) + '</span></div>') + '</div>';
             }
-            async function renderMonth() {
-                document.getElementById('calTitle').textContent = calYear + '年' + (calMonth + 1) + '月';
-                const res = await fetch(`${API_TASKS}/worklog?year=${calYear}&month=${calMonth + 1}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                const d = await res.json();
-                const done = d.done_by_day || {};
-                const created = d.created_by_day || {};
-                const firstDow = new Date(calYear, calMonth, 1).getDay();
-                const dim = new Date(calYear, calMonth + 1, 0).getDate();
-                const dimPrev = new Date(calYear, calMonth, 0).getDate();
-                const now = new Date();
+            document.getElementById('calGrid').innerHTML = cells;
+            document.getElementById('kDone').textContent = data.total_done || 0;
+            document.getElementById('kCreated').textContent = data.total_created || 0;
+            document.getElementById('kActive').textContent = data.active_days || 0;
+            document.getElementById('kRate').textContent = data.total_created ? Math.round(data.rate * 100) + '%' : '\u2014';
+        }
+        async function showDay(day) {
+            const el = document.getElementById('calDetail');
+            el.innerHTML = '<div class="d-empty">' + text.loading + '</div>';
+            try {
+                const res = await fetch(API_TASKS + '/worklog/day?date=' + encodeURIComponent(day), { headers: authHeaders() });
+                const data = await res.json();
+                let items = '';
+                (data.done_tasks || []).forEach(task => { items += '<div class="d-item"><span class="d-dot done"></span><span class="d-name">' + escapeHtml(task.title) + '</span><span class="d-time">\u2713 \u5b8c\u6210</span></div>'; });
+                (data.created_tasks || []).forEach(task => { items += '<div class="d-item"><span class="d-dot pending"></span><span class="d-name">' + escapeHtml(task.title) + '</span><span class="d-time">\u25cf \u521b\u5efa</span></div>'; });
+                if (!items) items = '<div class="d-empty">\u5f53\u65e5\u65e0\u5de5\u4f5c\u8bb0\u5f55</div>';
+                el.innerHTML = '<div class="d-head">' + day + ' · \u5de5\u4f5c\u660e\u7ec6</div>' + items;
+            } catch (e) { el.innerHTML = '<div class="d-empty">\u52a0\u8f7d\u5931\u8d25</div>'; }
+        }
+        function calShift(delta) {
+            calMonth += delta;
+            if (calMonth < 0) { calMonth = 11; calYear--; }
+            if (calMonth > 11) { calMonth = 0; calYear++; }
+            renderMonth();
+        }
+        async function renderYear() {
+            const year = calYear;
+            const datas = await Promise.all(Array.from({ length: 12 }, (_, m) => fetch(API_TASKS + '/worklog?year=' + year + '&month=' + (m + 1), { headers: authHeaders() }).then(r => r.json())));
+            const now = new Date();
+            let html = '';
+            for (let m = 0; m < 12; m++) {
+                const done = datas[m].done_by_day || {};
+                const firstDow = new Date(year, m, 1).getDay();
+                const dim = new Date(year, m + 1, 0).getDate();
                 let cells = '';
-                for (let i = 0; i < 42; i++) {
-                    let y = calYear, m = calMonth, d, other = false;
-                    if (i < firstDow) {
-                        m = calMonth - 1; if (m < 0) { m = 11; y--; }
-                        d = dimPrev - firstDow + 1 + i; other = true;
-                    } else if (i >= firstDow + dim) {
-                        m = calMonth + 1; if (m > 11) { m = 0; y++; }
-                        d = i - firstDow - dim + 1; other = true;
-                    } else {
-                        d = i - firstDow + 1;
+                for (let i = 0; i < firstDow; i++) cells += '<div class="mc-cell" style="background:transparent"></div>';
+                for (let d = 1; d <= dim; d++) {
+                    const key = year + '-' + pad2(m + 1) + '-' + pad2(d);
+                    const isToday = year === now.getFullYear() && m === now.getMonth() && d === now.getDate();
+                    cells += '<div class="mc-cell' + (done[key] ? ' has' : '') + (isToday ? ' today' : '') + '">' + d + '</div>';
+                }
+                html += '<div class="mini-cal"><div class="mc-title">' + (m + 1) + '\u6708</div><div class="mc-grid">' + cells + '</div></div>';
+            }
+            document.getElementById('yearGrid').innerHTML = html;
+        }
+        async function initTaskEvents() {
+            try {
+                const res = await fetch(API_TASKS + '/events', { headers: authHeaders() });
+                if (res.status === 401) return;
+                if (!res.ok || !res.body) { setTimeout(initTaskEvents, 3000); return; }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    let idx;
+                    while ((idx = buf.indexOf('\n\n')) !== -1) {
+                        const raw = buf.slice(0, idx);
+                        buf = buf.slice(idx + 2);
+                        const dataLine = raw.split('\n').find(line => line.indexOf('data:') === 0);
+                        if (!dataLine) continue;
+                        let ev;
+                        try { ev = JSON.parse(dataLine.slice(5).trim()); } catch (e) { continue; }
+                        if (ev.type === 'task_remind') showRemind(ev.message);
                     }
-                    const key = y + '-' + pad2(m + 1) + '-' + pad2(d);
-                    const dn = done[key] || 0, cn = created[key] || 0;
-                    const isToday = y === now.getFullYear() && m === now.getMonth() && d === now.getDate();
-                    cells += '<div class="cal-cell' + (other ? ' other' : '') + (isToday ? ' today' : '') + '" onclick="showDay(\\'' + key + '\\')">'
-                           + '<span class="day-num">' + d + '</span>'
-                           + (other ? '' : '<div class="cell-stats"><span class="c-done">' + dn + '</span><span class="c-created">' + cn + '</span></div>')
-                           + '</div>';
                 }
-                document.getElementById('calGrid').innerHTML = cells;
-                document.getElementById('kDone').textContent = d.total_done || 0;
-                document.getElementById('kCreated').textContent = d.total_created || 0;
-                document.getElementById('kActive').textContent = d.active_days || 0;
-                document.getElementById('kRate').textContent = d.total_created ? Math.round(d.rate * 100) + '%' : '—';
-            }
-            async function showDay(dateStr) {
-                const el = document.getElementById('calDetail');
-                el.innerHTML = '<div class="d-empty">加载中...</div>';
-                try {
-                    const res = await fetch(`${API_TASKS}/worklog/day?date=${dateStr}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    const d = await res.json();
-                    let items = '';
-                    (d.done_tasks || []).forEach(t => {
-                        items += '<div class="d-item"><span class="d-dot" style="background:var(--success)"></span><span class="d-name">' + escapeHtml(t.title) + '</span><span class="d-time">✓ 完成</span></div>';
-                    });
-                    (d.created_tasks || []).forEach(t => {
-                        items += '<div class="d-item"><span class="d-dot" style="background:var(--primary)"></span><span class="d-name">' + escapeHtml(t.title) + '</span><span class="d-time">＋ 创建</span></div>';
-                    });
-                    if (!items) items = '<div class="d-empty">当日无工作记录</div>';
-                    el.innerHTML = '<div class="d-head">' + dateStr + ' · 工作明细</div>' + items;
-                } catch (e) {
-                    el.innerHTML = '<div class="d-empty">加载失败</div>';
-                }
-            }
-            function calShift(delta) {
-                calMonth += delta;
-                if (calMonth < 0) { calMonth = 11; calYear--; }
-                if (calMonth > 11) { calMonth = 0; calYear++; }
-                renderMonth();
-            }
-            function switchCalView(v) {
-                document.getElementById('calMonth').style.display = v === 'month' ? '' : 'none';
-                document.getElementById('calYear').style.display = v === 'year' ? '' : 'none';
-                if (v === 'year') renderYear();
-            }
-            async function renderYear() {
-                const year = calYear;
-                const datas = await Promise.all(Array.from({ length: 12 }, (_, m) =>
-                    fetch(`${API_TASKS}/worklog?year=${year}&month=${m + 1}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json())
-                ));
-                const now = new Date();
-                let html = '';
-                for (let m = 0; m < 12; m++) {
-                    const done = datas[m].done_by_day || {};
-                    const firstDow = new Date(year, m, 1).getDay();
-                    const dim = new Date(year, m + 1, 0).getDate();
-                    let cells = '';
-                    for (let i = 0; i < firstDow; i++) cells += '<div class="mc-cell" style="background:transparent"></div>';
-                    for (let d = 1; d <= dim; d++) {
-                        const key = year + '-' + pad2(m + 1) + '-' + pad2(d);
-                        const dn = done[key] || 0;
-                        const isToday = year === now.getFullYear() && m === now.getMonth() && d === now.getDate();
-                        cells += '<div class="mc-cell' + (dn ? ' has' : '') + (isToday ? ' today' : '') + '">' + d + '</div>';
-                    }
-                    html += '<div class="mini-cal"><div class="mc-title">' + (m + 1) + '月</div><div class="mc-grid">' + cells + '</div></div>';
-                }
-                document.getElementById('yearGrid').innerHTML = html;
-            }
+                setTimeout(initTaskEvents, 3000);
+            } catch (e) { setTimeout(initTaskEvents, 3000); }
+        }
+        function showRemind(message) {
+            document.getElementById('remindBadge').style.display = 'inline';
+            const toast = document.getElementById('remindToast');
+            toast.textContent = message;
+            toast.style.display = 'block';
+            clearTimeout(toast._timer);
+            toast._timer = setTimeout(() => { toast.style.display = 'none'; }, 5000);
+        }
 
-            // ── SSE 提醒 ──────────────────────────────────
-            // 注意：后端 /tasks/events 依赖 Authorization 头鉴权，原生 EventSource 无法携带自定义头，
-            // 故用 fetch 流式读取 SSE（与 send() 一致），而不是 brief 里的 new EventSource(?token=)。
-            async function initTaskEvents() {
-                try {
-                    const res = await fetch(API_TASKS + '/events', {
-                        headers: { 'Authorization': 'Bearer ' + token }
-                    });
-                    // 401 鉴权失败（token 无效/过期）：停止重连，交给登录流程
-                    if (res.status === 401) return;
-                    if (!res.ok || !res.body) {
-                        // 其他异常（如 5xx）：退避重连
-                        setTimeout(initTaskEvents, 3000);
-                        return;
-                    }
-                    const reader = res.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buf = '';
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        buf += decoder.decode(value, { stream: true });
-                        let idx;
-                        while ((idx = buf.indexOf('\\n\\n')) !== -1) {
-                            const raw = buf.slice(0, idx);
-                            buf = buf.slice(idx + 2);
-                            const dataLine = raw.split('\\n').find(l => l.indexOf('data:') === 0);
-                            if (!dataLine) continue;
-                            let ev;
-                            try { ev = JSON.parse(dataLine.slice(5).trim()); } catch (e) { continue; }
-                            if (ev.type === 'task_remind') showRemind(ev.message);
-                        }
-                    }
-                    // 连接被服务端/网络中断（done=true）：退避重连
-                    setTimeout(initTaskEvents, 3000);
-                } catch (e) {
-                    console.error('SSE 提醒订阅失败', e);
-                    // 网络异常：退避重连
-                    setTimeout(initTaskEvents, 3000);
-                }
-            }
-            function showRemind(msg) {
-                // 顶部「工作记录」旁角标
-                const badge = document.getElementById('remindBadge');
-                if (badge) badge.style.display = 'inline';
-                // 右下角提醒气泡
-                let el = document.getElementById('remindToast');
-                if (!el) {
-                    el = document.createElement('div');
-                    el.id = 'remindToast';
-                    el.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#fff;border:1px solid #e8e8e8;box-shadow:0 4px 16px rgba(0,0,0,.12);border-radius:8px;padding:12px 16px;font-size:13px;color:#333;max-width:320px;z-index:999;';
-                    document.body.appendChild(el);
-                }
-                el.textContent = '⏰ ' + msg;
-                el.style.display = 'block';
-                clearTimeout(el._t);
-                el._t = setTimeout(() => { el.style.display = 'none'; }, 5000);
-            }
+        document.getElementById('newChatBtn').addEventListener('click', newChat);
+        document.getElementById('sendBtn').addEventListener('click', send);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+        document.getElementById('logoutBtn').addEventListener('click', () => { localStorage.removeItem('token'); localStorage.removeItem('userName'); localStorage.removeItem('activeSessionId'); window.location.href = '/login'; });
+        document.getElementById('chatNav').addEventListener('click', () => switchMainView('chat'));
+        document.getElementById('calendarNav').addEventListener('click', () => switchMainView('calendar'));
+        document.getElementById('sessionSearch').addEventListener('input', loadSessionList);
+        document.getElementById('taskSearch').addEventListener('input', loadTasks);
+        document.getElementById('taskAddBtn').addEventListener('click', addTask);
+        document.getElementById('taskAddInput').addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
+        document.getElementById('taskToggle').addEventListener('click', () => {
+            const list = document.getElementById('taskList');
+            const hidden = list.style.display === 'none';
+            list.style.display = hidden ? '' : 'none';
+            document.getElementById('taskToggle').textContent = hidden ? '\u25be' : '\u25b8';
+        });
+        document.getElementById('taskTabs').addEventListener('click', e => {
+            const btn = e.target.closest('.task-tab');
+            if (!btn) return;
+            taskFilter = btn.dataset.filter;
+            document.querySelectorAll('.task-tab').forEach(x => x.classList.toggle('active', x === btn));
+            loadTasks();
+        });
+        sessionList.addEventListener('click', e => {
+            const del = e.target.closest('[data-del]');
+            if (del) { e.stopPropagation(); deleteSession(del.dataset.del); return; }
+            const row = e.target.closest('.session-item');
+            if (row) openSession(row.dataset.id);
+        });
+        document.getElementById('taskList').addEventListener('click', e => {
+            const row = e.target.closest('[data-task]');
+            if (row) taskMenu(row.dataset.task);
+        });
+        document.addEventListener('click', e => {
+            const cancelPlan = e.target.closest('[data-cancel-plan]');
+            if (cancelPlan) cancelPlan.closest('.task-plan-preview').remove();
+        });
+        document.getElementById('calGrid').addEventListener('click', e => {
+            const cell = e.target.closest('[data-day]');
+            if (cell) showDay(cell.dataset.day);
+        });
+        document.getElementById('calPrev').addEventListener('click', () => calShift(-1));
+        document.getElementById('calNext').addEventListener('click', () => calShift(1));
+        document.getElementById('calView').addEventListener('change', e => {
+            document.getElementById('calMonth').style.display = e.target.value === 'month' ? '' : 'none';
+            document.getElementById('calYear').style.display = e.target.value === 'year' ? '' : 'none';
+            if (e.target.value === 'year') renderYear();
+        });
+        document.querySelectorAll('.quick-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                input.value = btn.dataset.q;
+                window._quickIntent = btn.dataset.intent || '';
+                send();
+            });
+        });
 
-            // ── 初始化 ────────────────────────────────────
-            (function init() {
-                // 恢复上次活跃会话
-                const saved = localStorage.getItem('activeSessionId');
-                if (saved) {
-                    activeSessionId = saved;
-                    openSession(saved);
-                }
-                loadSessionList();
-                // 任务面板 + 日历 + SSE 提醒
-                loadTasks();
-                renderMonth();
-                initTaskEvents();
-            })();
-        </script>
-    </body>
-    </html>
+        (function init() {
+            if (activeSessionId) openSession(activeSessionId);
+            loadSessionList();
+            loadTasks();
+            renderMonth();
+            initTaskEvents();
+        })();
+    </script>
+</body>
+</html>
     """
 
 
 @router.get("/favicon.ico")
 async def favicon():
-    """空 favicon，消除 404"""
+    """Return an empty favicon to avoid noisy 404s."""
     from fastapi.responses import Response
+
     return Response(status_code=204)
 
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page():
-    """登录页面"""
-    return """
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>登录 - Agent-Zs</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
-            .header { background: #1890ff; color: white; padding: 16px 24px; text-align: center; }
-            .header h1 { font-size: 18px; font-weight: 500; }
-            .login-container { flex: 1; display: flex; align-items: center; justify-content: center; }
-            .login-card { background: white; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); padding: 40px; width: 400px; max-width: 90vw; }
-            .login-card h2 { text-align: center; color: #333; margin-bottom: 32px; font-size: 20px; font-weight: 500; }
-            .form-group { margin-bottom: 20px; }
-            .form-group label { display: block; margin-bottom: 6px; color: #666; font-size: 14px; }
-            .form-group input { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; outline: none; transition: border-color 0.2s; }
-            .form-group input:focus { border-color: #1890ff; box-shadow: 0 0 0 2px rgba(24,144,255,0.2); }
-            .login-btn { width: 100%; padding: 12px; background: #1890ff; color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; transition: background 0.2s; }
-            .login-btn:hover { background: #40a9ff; }
-            .login-btn:disabled { background: #d9d9d9; cursor: not-allowed; }
-            .error-msg { color: #ff4d4f; font-size: 13px; text-align: center; margin-top: 16px; display: none; }
-            .error-msg.show { display: block; }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>Agent-Zs 企业智能助手</h1>
-        </div>
-        <div class="login-container">
-            <div class="login-card">
-                <h2>用户登录</h2>
-                <form id="loginForm">
-                    <div class="form-group">
-                        <label>用户名</label>
-                        <input type="text" id="username" placeholder="请输入用户名" autocomplete="username" autofocus>
-                    </div>
-                    <div class="form-group">
-                        <label>密码</label>
-                        <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password">
-                    </div>
-                    <button type="submit" class="login-btn" id="loginBtn">登 录</button>
-                </form>
-                <div class="error-msg" id="errorMsg"></div>
-            </div>
-        </div>
-        <script>
-            // 已登录则直接跳转
-            if (localStorage.getItem('token')) {
-                window.location.href = '/';
-            }
-
-            const form = document.getElementById('loginForm');
-            const usernameEl = document.getElementById('username');
-            const passwordEl = document.getElementById('password');
-            const loginBtn = document.getElementById('loginBtn');
-            const errorMsg = document.getElementById('errorMsg');
-
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const username = usernameEl.value.trim();
-                const password = passwordEl.value.trim();
-
-                if (!username || !password) {
-                    showError('请输入用户名和密码');
-                    return;
+    """Login page."""
+    return r"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Agent-Zs</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: #111827; font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: linear-gradient(180deg, #fbfdff 0%, #eef3fb 100%); }
+        .card { width: min(400px, calc(100vw - 32px)); padding: 34px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, .28); background: rgba(255,255,255,.9); box-shadow: 0 18px 40px rgba(15, 23, 42, .10); }
+        h1 { margin: 0 0 6px; font-size: 22px; }
+        p { margin: 0 0 28px; color: #6b7280; font-size: 13px; }
+        label { display: block; margin: 16px 0 6px; color: #4b5563; font-size: 13px; font-weight: 650; }
+        input { width: 100%; padding: 11px 12px; border: 1px solid rgba(148, 163, 184, .36); border-radius: 8px; outline: 0; font: inherit; }
+        input:focus { border-color: rgba(37,99,235,.55); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+        button { width: 100%; margin-top: 22px; padding: 12px; color: #fff; border: 0; border-radius: 8px; cursor: pointer; font: inherit; font-weight: 800; background: linear-gradient(135deg, #2563eb, #4f46e5); }
+        button:disabled { background: #cbd5e1; cursor: not-allowed; }
+        .error { display: none; margin-top: 14px; color: #b91c1c; font-size: 13px; text-align: center; }
+        .error.show { display: block; }
+    </style>
+</head>
+<body>
+    <form class="card" id="loginForm">
+        <h1>Agent-Zs</h1>
+        <p>&#20225;&#19994;&#26234;&#33021;&#21161;&#25163;</p>
+        <label for="username">&#29992;&#25143;&#21517;</label>
+        <input id="username" type="text" autocomplete="username" autofocus placeholder="&#35831;&#36755;&#20837;&#29992;&#25143;&#21517;">
+        <label for="password">&#23494;&#30721;</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="&#35831;&#36755;&#20837;&#23494;&#30721;">
+        <button id="loginBtn" type="submit">&#30331;&#24405;</button>
+        <div class="error" id="errorMsg"></div>
+    </form>
+    <script>
+        if (localStorage.getItem('token')) window.location.href = '/';
+        const form = document.getElementById('loginForm');
+        const usernameEl = document.getElementById('username');
+        const passwordEl = document.getElementById('password');
+        const loginBtn = document.getElementById('loginBtn');
+        const errorMsg = document.getElementById('errorMsg');
+        function showError(message) {
+            errorMsg.textContent = message;
+            errorMsg.classList.add('show');
+        }
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            const username = usernameEl.value.trim();
+            const password = passwordEl.value.trim();
+            if (!username || !password) return showError('\u8bf7\u8f93\u5165\u7528\u6237\u540d\u548c\u5bc6\u7801');
+            loginBtn.disabled = true;
+            loginBtn.textContent = '\u767b\u5f55\u4e2d...';
+            errorMsg.classList.remove('show');
+            try {
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'ok') {
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('userName', data.user.real_name || data.user.username);
+                    window.location.href = '/';
+                } else {
+                    showError(data.message || '\u7528\u6237\u540d\u6216\u5bc6\u7801\u9519\u8bef');
                 }
-
-                loginBtn.disabled = true;
-                loginBtn.textContent = '登录中...';
-                errorMsg.classList.remove('show');
-
-                try {
-                    const res = await fetch('/api/v1/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username, password })
-                    });
-                    const data = await res.json();
-                    if (res.ok && data.status === 'ok') {
-                        localStorage.setItem('token', data.token);
-                        localStorage.setItem('userName', data.user.real_name || data.user.username);
-                        window.location.href = '/';
-                    } else {
-                        showError(data.message || '用户名或密码错误');
-                    }
-                } catch (err) {
-                    showError('网络错误，请检查连接');
-                } finally {
-                    loginBtn.disabled = false;
-                    loginBtn.textContent = '登 录';
-                }
-            });
-
-            function showError(msg) {
-                errorMsg.textContent = msg;
-                errorMsg.classList.add('show');
+            } catch (e) {
+                showError('\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u68c0\u67e5\u8fde\u63a5');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = '\u767b\u5f55';
             }
-        </script>
-    </body>
-    </html>
+        });
+    </script>
+</body>
+</html>
     """

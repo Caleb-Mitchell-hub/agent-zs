@@ -9,7 +9,9 @@
 import time
 import logging
 from collections import defaultdict
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+
+from app.gateway.auth import verify_token
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +101,14 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
-async def check_rate_limit(request: Request):
+async def check_rate_limit(
+    request: Request,
+    user_info: dict = Depends(verify_token),
+):
     """检查速率限制"""
     # 从请求中获取用户信息（简化实现）
-    tenant_id = "1"
-    user_id = "1"
+    tenant_id = str(user_info.get("tenant_id") or "anonymous")
+    user_id = str(user_info.get("user_id") or "anonymous")
 
     # 检查用户限流
     user_key = rate_limiter.get_user_key(user_id, tenant_id)
