@@ -1,10 +1,21 @@
-"""Policy Engine - RBAC/ABAC 权限与风险判定
+"""Policy Engine - 后端 ERP 权限码驱动的权限与风险判定
 
-在任务计划执行前，对每个 action 做确定性判定（设计文档 §21「Policy Engine」、§22「RBAC+ABAC」）：
-LLM 只提出「我要做什么」，真正是否允许执行由本模块决定，不依赖 Prompt 控制。
+权限判定完全由后端 ERP 返回的权限码（perm_code）决定，**不在 Agent-Zs 代码里
+自定义角色集合**。权限码经「用户 → 角色 → 权限」链路在登录时加载进 JWT 的
+permissions 字段（super_admin 为 None 表示无限制）。
+
+权限校验下沉到「业务对象确定后」两层：
+- 查询：SQL 生成后按「表名 → VIEW 权限码」校验（database_tool）
+- 创建：doc_type 确定后按「doc_type → ADD 权限码」校验（write_agent）
+
+本模块提供：
+- has_permission()：判断用户是否拥有指定权限码
+- evaluate_policy()：高风险操作强制人工确认（风险控制层，非权限判定）
+- 权限码映射表：TABLE_VIEW_PERMISSION（表名 → VIEW 权限码）、
+  DOC_TYPE_ADD_PERMISSION（doc_type → ADD 权限码）
 
 数据范围（ABAC）已在 JWT → user_permissions → data_agent 通道中实现，
-本模块提供 build_user_permissions() 统一打包。
+build_user_permissions() 统一打包。
 """
 
 import logging
@@ -20,41 +31,87 @@ class PolicyDecision(str, Enum):
     REQUIRE_CONFIRMATION = "require_confirmation"
 
 
-# 写操作 action（需要写权限）
-_WRITE_ACTIONS = {"create", "update"}
+# ─────────────────────────── 权限码映射表 ───────────────────────────
+#
+# 权限码命名规则：{业务对象}_{操作}，操作后缀 _VIEW(查)/_ADD(增)/_EDIT(改)/_DELETE(删)。
+# 明细表（*_item）跟随主单的 VIEW 权限码，避免过度拆细导致误伤。
 
-# 高风险 action（强制人工确认，不由 LLM 决定）
-_HIGH_RISK_ACTIONS = {"update"}
+# 表名 → VIEW 权限码（查询用）。未映射的表（如 supplier 等无 button 权限码的菜单级
+# 业务）不做表级权限校验，数据隔离仍由 ABAC 数据范围兜底。
+TABLE_VIEW_PERMISSION = {
+    # 销售
+    "sales_order": "SALES_ORDER_VIEW",
+    "sales_order_item": "SALES_ORDER_VIEW",
+    # 采购
+    "purchase_order": "PURCHASE_ORDER_VIEW",
+    "purchase_order_item": "PURCHASE_ORDER_VIEW",
+    # 库存
+    "inventory": "INVENTORY_VIEW",
+    "inventory_record": "INVENTORY_VIEW",
+    "inventory_log": "INVENTORY_VIEW",
+    # 主数据
+    "warehouse": "WAREHOUSE_VIEW",
+    "customer": "CUSTOMER_VIEW",
+    "product": "PRODUCT_VIEW",
+    "product_sku": "PRODUCT_VIEW",
+    "product_category": "PRODUCT_VIEW",
+    # 出入库
+    "stock_in_order": "STOCK_IN_VIEW",
+    "stock_in_order_item": "STOCK_IN_VIEW",
+    "stock_out_order": "STOCK_OUT_VIEW",
+    "stock_out_order_item": "STOCK_OUT_VIEW",
+    "stock_transfer_order": "STOCK_TRANSFER_VIEW",
+    "stock_transfer_order_item": "STOCK_TRANSFER_VIEW",
+    # 报销
+    "expense_reimbursement": "EXPENSE_VIEW",
+}
 
-# 具备写权限的角色码（与 sys_role.role_code 对应；is_super_admin 恒放行）
-_WRITE_ROLE_CODES = {"admin", "write", "manager"}
+# doc_type → ADD 权限码（创建单据用）
+DOC_TYPE_ADD_PERMISSION = {
+    "purchase_order": "PURCHASE_ORDER_ADD",
+    "sales_order": "SALES_ORDER_ADD",
+    "stock_in_order": "STOCK_IN_ADD",
+    "stock_out_order": "STOCK_OUT_ADD",
+    "expense_reimbursement": "EXPENSE_ADD",
+}
 
 
-def evaluate_policy(action: str, user_info: dict | None) -> PolicyDecision:
-    """判定单个 action 的执行策略
+def has_permission(perm_codes: list[str] | None, is_super_admin: bool, perm_code: str) -> bool:
+    """判断用户是否拥有指定权限码
+
+    Args:
+        perm_codes: 用户权限码列表；super_admin 为 None 表示无限制
+        is_super_admin: 是否超级管理员
+        perm_code: 目标权限码
+
+    Returns:
+        bool: 是否拥有该权限。超级管理员恒 True；无权限信息（None 且非 admin）恒 False。
+    """
+    if is_super_admin:
+        return True
+    if perm_codes is None:
+        return False  # 无权限信息，安全默认拒绝
+    return perm_code in perm_codes
+
+
+def evaluate_policy(action: str, user_info: dict | None = None) -> PolicyDecision:
+    """高风险操作强制人工确认（风险控制层，非权限判定）
+
+    权限判定已下沉到业务对象层（has_permission）：
+    - 查询：SQL 生成后按「表名 → VIEW 权限码」校验（database_tool）
+    - 创建：doc_type 确定后按「doc_type → ADD 权限码」校验（write_agent）
+
+    本函数只保留与业务对象无关的风险控制：update 属高风险，强制人工确认。
 
     Args:
         action: 能力名（query/create/update/report/knowledge）
-        user_info: 用户信息（含 is_super_admin/roles）
+        user_info: 用户信息（保留参数，兼容历史调用点，当前不再依赖它做权限判定）
 
     Returns:
-        PolicyDecision: ALLOW / DENY / REQUIRE_CONFIRMATION
+        PolicyDecision: ALLOW / REQUIRE_CONFIRMATION
     """
-    user_info = user_info or {}
-    is_admin = bool(user_info.get("is_super_admin"))
-    roles = set(user_info.get("roles") or [])
-
-    # 1. 写操作权限检查（RBAC）
-    if action in _WRITE_ACTIONS:
-        has_write = is_admin or bool(roles & _WRITE_ROLE_CODES)
-        if not has_write:
-            logger.warning(f"Policy 拒绝写操作 {action}: 用户无写权限 (roles={roles})")
-            return PolicyDecision.DENY
-
-    # 2. 高风险强制确认
-    if action in _HIGH_RISK_ACTIONS:
+    if action == "update":
         return PolicyDecision.REQUIRE_CONFIRMATION
-
     return PolicyDecision.ALLOW
 
 

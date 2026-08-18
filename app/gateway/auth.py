@@ -93,6 +93,7 @@ def create_access_token(user_info: dict) -> str:
         "real_name": user_info.get("real_name"),
         "is_super_admin": user_info.get("is_super_admin", False),
         "roles": user_info.get("roles", []),
+        "permissions": user_info.get("permissions", []),
         "warehouse_ids": user_info.get("warehouse_ids", []),
         "region_ids": user_info.get("region_ids", []),
         "customer_ids": user_info.get("customer_ids", []),

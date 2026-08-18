@@ -17,6 +17,7 @@ from app.config import settings
 from app.db.session import get_session
 from app.db.schema import get_schema_structure, get_summary_ddl
 from app.agent.llm_client import llm_client
+from app.policy.engine import has_permission, TABLE_VIEW_PERMISSION
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,8 @@ NL_TO_SQL_PROMPT = """你是一个 SQL 专家。根据用户的自然语言问�
 
 {permission_block}
 
+{user_block}
+
 ## 用户问题（结合上面的对话历史和查询参考理解）
 {question}
 
@@ -179,6 +182,11 @@ class DatabaseTool:
             user_id: 用户 ID（用于加载长期用户记忆）
         """
         try:
+            # 0. 数据范围判定：非 admin 且无任何数据范围 → 拒绝（防止空权限越权看全量）
+            scope_err = self._check_data_scope(user_permissions)
+            if scope_err:
+                return {"status": "denied", "data": None, "sql": None, "message": scope_err, "error_code": "PERMISSION_DENIED"}
+
             # 1. 获取 schema
             schema = await self._get_schema()
 
@@ -194,11 +202,14 @@ class DatabaseTool:
             # 5. 构建权限约束（行级数据安全）
             permission_block = self._build_permission_prompt(user_permissions)
 
+            # 5.5 构建当前用户身份（让 LLM 正确解析「我/我的」为当前登录用户过滤）
+            user_block = self._build_user_identity_prompt(user_id, user_permissions)
+
             # 6. LLM 生成 SQL
             prompt = NL_TO_SQL_PROMPT.format(
                 schema=schema, history=history, context_hint=context_hint,
                 user_memory=user_memory_block,
-                permission_block=permission_block, question=query,
+                permission_block=permission_block, user_block=user_block, question=query,
             )
             llm_response = await llm_client.chat(prompt)
 
@@ -220,6 +231,16 @@ class DatabaseTool:
                     "message": f"查询失败: SQL 引用了不存在的字段: {', '.join(bad_cols)}",
                     "error_code": "INVALID_COLUMN",
                 }
+
+            # 6.5 行级过滤拦截：涉及受限维度表时必须包含对应过滤条件（不依赖 LLM 自觉加 WHERE）
+            filter_err = self._enforce_row_level_filter(sql, user_permissions)
+            if filter_err:
+                return {"status": "denied", "data": None, "sql": sql, "message": filter_err, "error_code": "PERMISSION_DENIED"}
+
+            # 6.6 表级权限校验：SQL 涉及的表需有对应 VIEW 权限码（后端 ERP 权限码驱动）
+            view_err = self._enforce_view_permission(sql, user_permissions)
+            if view_err:
+                return {"status": "denied", "data": None, "sql": sql, "message": view_err, "error_code": "PERMISSION_DENIED"}
 
             # 7. 执行 SQL（带错误自动修正，最多重试2次）
             max_retries = 2
@@ -387,6 +408,132 @@ class DatabaseTool:
             return "（当前用户无数据权限限制，可访问所有数据）"
 
         return "## 当前用户数据权限（**强制执行**，违反将导致越权查询错误）\n" + "\n".join(constraints)
+
+    def _check_data_scope(self, user_permissions: dict | None) -> str | None:
+        """数据范围判定：非 admin 且无任何数据范围 → 返回拒绝信息（None = 放行）
+
+        修复越权漏洞：普通用户未分配任何仓库/区域/客户/商品权限时，各 ID 列表为空，
+        此前会被误判为「无限制」而查全量。超级管理员（is_super_admin）不受限。
+        """
+        if not user_permissions:
+            return None  # 未提供权限信息（内部调用/测试路径），不在此拦截
+        if user_permissions.get("is_super_admin"):
+            return None  # 超级管理员无限制
+        has_scope = any([
+            user_permissions.get("warehouse_ids"),
+            user_permissions.get("region_ids"),
+            user_permissions.get("customer_ids"),
+            user_permissions.get("product_ids"),
+        ])
+        if not has_scope:
+            logger.warning("拦截越权查询：非 admin 用户无任何数据范围权限")
+            return "无数据访问权限，请联系管理员分配仓库/区域等数据范围"
+        return None
+
+    def _enforce_row_level_filter(self, sql: str, user_permissions: dict | None) -> str | None:
+        """行级过滤拦截：查询涉及受限维度表时，SQL 必须含对应过滤条件（None = 放行）
+
+        不依赖 LLM 自觉在 SQL 中加 WHERE，执行前确定性校验：用户有 warehouse_ids 范围，
+        且 SQL 的 FROM/JOIN 涉及 warehouse 表，但 WHERE 中没有 warehouse 表的过滤条件
+        → 拦截，防止 LLM 漏加 WHERE 导致越权查全量。
+        """
+        if not user_permissions:
+            return None
+        if user_permissions.get("is_super_admin"):
+            return None
+        warehouse_ids = user_permissions.get("warehouse_ids") or []
+        if not warehouse_ids:
+            return None  # 无仓库范围限制，跳过 warehouse 维度
+
+        # 提取 FROM/JOIN 表名与别名
+        sql_no_literals = re.sub(r"'(?:[^']|'')*'", "''", sql)
+        warehouse_aliases: list[str] = []
+        for m in re.finditer(
+            r'(?:FROM|JOIN)\s+`?([A-Za-z_]\w*)`?(?:\s+(?:AS\s+)?([A-Za-z_]\w*))?',
+            sql_no_literals, re.IGNORECASE,
+        ):
+            table, alias = m.group(1), m.group(2) or m.group(1)
+            if "warehouse" in table.lower():
+                warehouse_aliases.append(alias.lower())
+
+        if not warehouse_aliases:
+            return None  # 查询不涉及 warehouse 表，无需仓库过滤
+
+        # 提取 WHERE 子句（到 GROUP BY/ORDER BY/HAVING/LIMIT/语句末尾为止）
+        where_match = re.search(
+            r'\bWHERE\b(.*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bHAVING\b|\bLIMIT\b|$)',
+            sql_no_literals, re.IGNORECASE | re.DOTALL,
+        )
+        if not where_match:
+            logger.warning(f"拦截越权查询：涉及 warehouse 表但无 WHERE 条件: {sql[:120]}")
+            return "越权查询被拦截：查询涉及仓库数据但未限定仓库范围"
+
+        where_part = where_match.group(1)
+        # 检查 WHERE 是否含 warehouse 表的列过滤（别名.列 或 裸 warehouse_* 列）
+        for alias in warehouse_aliases:
+            if re.search(rf'\b{re.escape(alias)}\.', where_part, re.IGNORECASE):
+                return None
+        if re.search(r'\bwarehouse[_a-zA-Z]*\b', where_part, re.IGNORECASE):
+            return None
+
+        logger.warning(f"拦截越权查询：WHERE 未限定 warehouse 范围: {sql[:120]}")
+        return "越权查询被拦截：查询涉及仓库数据但未限定仓库范围"
+
+    def _enforce_view_permission(self, sql: str, user_permissions: dict | None) -> str | None:
+        """表级权限校验：SQL 涉及的表需有对应 VIEW 权限码（None = 放行）
+
+        后端 ERP 权限码驱动：用户拥有某业务对象的 _VIEW 权限码，才能查询对应表。
+        与 B1/B2 数据范围防护并列，是「能查哪张表」的权限判定（数据范围则是「能看哪些行」）。
+        """
+        if not user_permissions:
+            return None  # 未提供权限信息（内部/测试路径），不在此拦截
+        if user_permissions.get("is_super_admin"):
+            return None  # 超级管理员无限制
+
+        perm_codes = user_permissions.get("perm_codes")
+        if perm_codes is None:
+            # 非 admin 且未加载到权限码（如旧 token 缺失 permissions 字段）→ 安全默认拒绝
+            logger.warning("拦截越权查询：非 admin 用户缺少权限码信息")
+            return "无查询权限，请联系管理员分配业务权限"
+
+        # 提取 FROM/JOIN 表名
+        sql_no_literals = re.sub(r"'(?:[^']|'')*'", "''", sql)
+        tables: set[str] = set()
+        for m in re.finditer(
+            r'(?:FROM|JOIN)\s+`?([A-Za-z_]\w*)`?',
+            sql_no_literals, re.IGNORECASE,
+        ):
+            tables.add(m.group(1).lower())
+
+        for table in tables:
+            need_code = TABLE_VIEW_PERMISSION.get(table)
+            if not need_code:
+                continue  # 未映射的表（如 supplier 等菜单级业务），不做表级校验
+            if not has_permission(perm_codes, False, need_code):
+                logger.warning(f"拦截越权查询：用户缺少 {need_code} 权限，SQL 涉及表 {table}")
+                return f"无权限查询「{table}」相关数据（缺少权限码 {need_code}）"
+
+        return None
+
+    def _build_user_identity_prompt(self, user_id: int, user_permissions: dict | None) -> str:
+        """构建当前登录用户身份提示，让 LLM 把「我/我的」解析为当前用户过滤。
+
+        用户说「查询我的订单」「我的待处理」时，「我/我的」= 当前登录用户，
+        需用人员归属字段过滤（created_by / applicant_id / salesman_id，视表结构而定）。
+        仅注入身份信息，不强制过滤 —— 只有用户明说「我/我的」才应用。
+        """
+        if not user_id:
+            return ""
+        real_name = (user_permissions or {}).get("real_name") or ""
+        return (
+            "## 当前登录用户身份\n"
+            f"- 当前登录用户 user_id = {user_id}，姓名 = {real_name}\n"
+            "- 用户说「我」「我的」（如「查询我的订单」「我的待处理」「我创建的」）时，"
+            "「我/我的」指当前登录用户本人\n"
+            "- 此类查询用人员归属字段过滤到本人：created_by = 当前 user_id"
+            "（采购/销售/出入库单），或 applicant_id = 当前 user_id（审批/待办），"
+            "salesman_id = 当前 user_id（销售归属），视具体表结构而定"
+        )
 
     def _build_history(self, messages: list[dict]) -> str:
         """构建对话历史摘要，帮助 LLM 理解上下文"""

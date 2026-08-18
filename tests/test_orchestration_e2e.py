@@ -80,7 +80,7 @@ async def test_complex_request_planning_path(graph, monkeypatch):
             return {"status": "ok", "data": [], "sql": None, "message": f"查询: {user_input}"}
 
     class FakeWriteAgent:
-        async def execute(self, user_input, messages, context, session_id, user_id, tenant_id):
+        async def execute(self, user_input, messages, context, session_id, user_id, tenant_id, user_permissions=None):
             executed.append(("create", user_input))
             return {"status": "ok", "data": None, "sql": None, "message": f"创建: {user_input}"}
 
@@ -128,3 +128,55 @@ async def test_simple_request_stays_single_intent(graph, monkeypatch):
 
     assert result["result"]["status"] == "ok"
     assert result["agent_name"] == "data_agent"
+
+
+@pytest.mark.asyncio
+async def test_create_delegated_to_write_agent(graph, monkeypatch):
+    """create 不再由 Policy 角色集合拦截，交由 WriteAgent 按 doc_type 校验 ADD 权限码"""
+    executed = []
+
+    class FakeWriteAgent:
+        async def execute(self, *a, **k):
+            executed.append(True)
+            return {"status": "ok", "message": "created"}
+
+    monkeypatch.setattr(langgraph_flow, "WriteAgent", FakeWriteAgent)
+
+    result = await graph.ainvoke({
+        "user_input": "创建一个采购订单",
+        "session_id": "test-sess",
+        "user_id": 1,
+        "tenant_id": 1,
+        "intent": "create",
+        "user_info": {"is_super_admin": False, "roles": ["viewer"]},
+    })
+
+    # 写操作不再在 Policy 层按角色 deny，真正权限校验下沉到 WriteAgent（见 test_write_agent_permission.py）
+    assert result["result"]["status"] == "ok"
+    assert executed == [True]
+
+
+@pytest.mark.asyncio
+async def test_update_requires_confirmation(monkeypatch):
+    """update 操作即使有写权限也需人工确认，不直接执行（直接单测 write_node）"""
+    executed = []
+
+    class FakeWriteAgent:
+        async def execute(self, *a, **k):
+            executed.append(True)
+            return {"status": "ok", "message": "updated"}
+
+    monkeypatch.setattr(langgraph_flow, "WriteAgent", FakeWriteAgent)
+
+    result = await langgraph_flow.write_node({
+        "user_input": "更新库存数量",
+        "session_id": "test-sess",
+        "user_id": 1,
+        "tenant_id": 1,
+        "intent": "update",
+        "user_info": {"is_super_admin": True},
+    })
+
+    assert result["result"]["status"] == "waiting_confirm"
+    assert result["result"]["error_code"] == "REQUIRE_CONFIRMATION"
+    assert executed == []

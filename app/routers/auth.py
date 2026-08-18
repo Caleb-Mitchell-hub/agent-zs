@@ -36,11 +36,13 @@ async def login(body: LoginRequest):
     user_id = user["user_id"]
     permissions = await auth_service.get_user_permissions(user_id)
     roles = await auth_service.get_user_roles(user_id)
+    perm_codes = await auth_service.get_user_permission_codes(user_id)
 
-    # 组装完整用户信息
+    # 组装完整用户信息（perm_codes 为 None 表示 super_admin 无限制）
     user_info = {
         **user,
         "roles": roles,
+        "permissions": perm_codes,
         "warehouse_ids": permissions.get("warehouse_ids", []),
         "region_ids": permissions.get("region_ids", []),
         "customer_ids": permissions.get("customer_ids", []),
@@ -60,6 +62,7 @@ async def login(body: LoginRequest):
             "real_name": user_info["real_name"],
             "is_super_admin": user_info["is_super_admin"],
             "roles": user_info["roles"],
+            "perm_codes": user_info["permissions"],
             "permissions": {
                 "warehouse_ids": user_info["warehouse_ids"],
                 "region_ids": user_info["region_ids"],
@@ -82,6 +85,7 @@ async def me(user_info: dict = Depends(verify_token)):
             "real_name": user_info.get("real_name"),
             "is_super_admin": user_info.get("is_super_admin", False),
             "roles": user_info.get("roles", []),
+            "perm_codes": user_info.get("permissions", []),
             "permissions": {
                 "warehouse_ids": user_info.get("warehouse_ids", []),
                 "region_ids": user_info.get("region_ids", []),

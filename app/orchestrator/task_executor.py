@@ -135,6 +135,7 @@ class TaskExecutor:
                 agent = WriteAgent()
                 return await agent.execute(
                     user_input, messages, context, session_id, user_id, tenant_id,
+                    user_permissions,
                 )
             elif action == "report":
                 agent = ReportAgent()

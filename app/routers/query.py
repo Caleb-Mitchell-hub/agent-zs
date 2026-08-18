@@ -54,8 +54,6 @@ def _build_reply_text(result: dict) -> str:
     if result.get("data"):
         md = _data_to_markdown(result.get("data"))
         reply_text = (result["message"] + "\n\n" + md) if result.get("message") else md
-    elif result.get("sql"):
-        reply_text = f"[SQL] {result['sql']}"
     return reply_text
 
 
@@ -88,6 +86,9 @@ async def natural_language_query(
         "region_ids": user_info.get("region_ids", []),
         "customer_ids": user_info.get("customer_ids", []),
         "product_ids": user_info.get("product_ids", []),
+        "is_super_admin": user_info.get("is_super_admin", False),
+        "perm_codes": user_info.get("permissions"),
+        "real_name": user_info.get("real_name", ""),
     }
 
     # 持久化：确保会话存在 & 保存用户消息
@@ -143,6 +144,9 @@ async def natural_language_query_stream(
         "region_ids": user_info.get("region_ids", []),
         "customer_ids": user_info.get("customer_ids", []),
         "product_ids": user_info.get("product_ids", []),
+        "is_super_admin": user_info.get("is_super_admin", False),
+        "perm_codes": user_info.get("permissions"),
+        "real_name": user_info.get("real_name", ""),
     }
 
     async def event_generator():

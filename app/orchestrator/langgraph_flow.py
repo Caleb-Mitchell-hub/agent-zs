@@ -33,6 +33,7 @@ from app.agents.knowledge_agent import KnowledgeAgent
 from app.agents.report_agent import ReportAgent
 from app.tasks.planner import parse_plan_input, split_today, split_month, split_year
 from app.tasks.service import get_workday_sets, create_task
+from app.policy.engine import evaluate_policy, PolicyDecision
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,24 @@ def _with_progress(message: str, node):
         await _emit_progress(state, message)
         return await node(state)
     return wrapped
+
+
+def _check_policy(action: str, state: AgentState) -> dict | None:
+    """执行前统一权限判定（RBAC / 风险）
+
+    返回 None 表示放行，可继续执行；否则返回拒绝/待确认结果，节点直接返回该结果。
+
+    所有能力（读 query/report/knowledge、写 create/update）执行前都必须经此判定，
+    杜绝「简单路径绕过 Policy Engine」的漏洞。
+    """
+    decision = evaluate_policy(action, state.get("user_info"))
+    if decision == PolicyDecision.DENY:
+        logger.warning(f"权限拦截: 拒绝执行 {action} (user={state.get('user_id')})")
+        return {"status": "denied", "message": f"无权限执行 {action} 操作", "error_code": "PERMISSION_DENIED"}
+    if decision == PolicyDecision.REQUIRE_CONFIRMATION:
+        logger.warning(f"权限拦截: {action} 需人工确认 (user={state.get('user_id')})")
+        return {"status": "waiting_confirm", "message": f"{action} 操作需要人工确认后执行", "error_code": "REQUIRE_CONFIRMATION"}
+    return None
 
 
 # ─────────────────────────── 确定性节点 ───────────────────────────
@@ -160,6 +179,11 @@ async def data_node(state: AgentState) -> dict:
     - 追问可复用上次结果时，直接基于 last_result 组织回复，不重新查询
     - 涉及新查询条件时，强制重新触发真实查询，禁止凭记忆推测
     """
+    # 权限判定（RBAC）：读操作默认放行，命中禁用角色则拒绝
+    denied = _check_policy("query", state)
+    if denied is not None:
+        return {"result": denied, "agent_name": "data_agent"}
+
     user_input = state["user_input"]
     context = state.get("context") or {}
 
@@ -200,6 +224,9 @@ async def data_node(state: AgentState) -> dict:
 
 async def knowledge_node(state: AgentState) -> dict:
     """知识检索节点（确定性检索 + LLM 回答生成）"""
+    denied = _check_policy("knowledge", state)
+    if denied is not None:
+        return {"result": denied, "agent_name": "knowledge_agent"}
     agent = KnowledgeAgent()
     result = await agent.execute(
         state["user_input"], state.get("messages") or [], state.get("context") or {},
@@ -210,6 +237,9 @@ async def knowledge_node(state: AgentState) -> dict:
 
 async def report_node(state: AgentState) -> dict:
     """报表节点（模板优先，未命中 LLM 兜底）"""
+    denied = _check_policy("report", state)
+    if denied is not None:
+        return {"result": denied, "agent_name": "report_agent"}
     agent = ReportAgent()
     result = await agent.execute(
         state["user_input"], state.get("messages") or [], state.get("context") or {},
@@ -220,10 +250,16 @@ async def report_node(state: AgentState) -> dict:
 
 async def write_node(state: AgentState) -> dict:
     """写操作节点（LLM 参数抽取 + ERP 调用）"""
+    # 权限判定：create 校验写权限，update 额外强制人工确认
+    action = "update" if state.get("intent") == "update" else "create"
+    denied = _check_policy(action, state)
+    if denied is not None:
+        return {"result": denied, "agent_name": "write_agent"}
     agent = WriteAgent()
     result = await agent.execute(
         state["user_input"], state.get("messages") or [], state.get("context") or {},
         state["session_id"], state.get("user_id", 0), state.get("tenant_id", 1),
+        state.get("user_permissions"),
     )
     return {"result": result, "agent_name": "write_agent"}
 

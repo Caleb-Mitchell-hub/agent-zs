@@ -114,6 +114,34 @@ class AuthService:
         )
         return [r["role_code"] for r in rows]
 
+    async def get_user_permission_codes(self, user_id: int) -> list[str] | None:
+        """获取用户的权限码列表（perm_code），super_admin 返回 None 表示无限制
+
+        权限码来自后端 ERP 的 sys_permission 表，经「用户 → 角色 → 权限」链路加载：
+        sys_user_role → sys_role_permission → sys_permission.perm_code。
+
+        超级管理员（sys_user.is_super_admin=1）拥有全量权限，返回 None（无限制）。
+
+        Returns:
+            list[str] | None: 权限码列表；super_admin 返回 None
+        """
+        # 先判断是否超级管理员
+        admin_rows = await execute_query(
+            "SELECT is_super_admin FROM sys_user WHERE id = :uid",
+            {"uid": user_id},
+        )
+        if admin_rows and admin_rows[0].get("is_super_admin"):
+            return None
+
+        rows = await execute_query(
+            "SELECT DISTINCT p.perm_code FROM sys_user_role ur "
+            "JOIN sys_role_permission rp ON ur.role_id = rp.role_id "
+            "JOIN sys_permission p ON rp.permission_id = p.id "
+            "WHERE ur.user_id = :uid AND p.deleted = 0 AND p.status = 1",
+            {"uid": user_id},
+        )
+        return [r["perm_code"] for r in rows if r.get("perm_code")]
+
 
 # 全局实例
 auth_service = AuthService()

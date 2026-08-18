@@ -1,51 +1,88 @@
-"""策略引擎（RBAC/ABAC）测试（纯函数，零外部依赖）
+"""策略引擎（权限码驱动）测试（纯函数，零外部依赖）
 
-验证：超级管理员放行 / 写权限拒绝 / 高风险强制确认 / 数据范围打包。
+验证：has_permission 权限码校验 / evaluate_policy 风险控制 / 权限码映射表 / 数据范围打包。
+
+权限判定由后端 ERP 返回的权限码（perm_code）驱动，不再使用自定义角色集合。
 """
 
-from app.policy.engine import evaluate_policy, PolicyDecision, build_user_permissions
+from app.policy.engine import (
+    has_permission,
+    evaluate_policy,
+    PolicyDecision,
+    build_user_permissions,
+    TABLE_VIEW_PERMISSION,
+    DOC_TYPE_ADD_PERMISSION,
+)
 
 
 # ============================================================
-# evaluate_policy（RBAC + 风险）
+# has_permission（后端权限码驱动）
 # ============================================================
 
-def test_super_admin_allow_query():
-    """超级管理员查询直接放行"""
-    assert evaluate_policy("query", {"is_super_admin": True}) == PolicyDecision.ALLOW
+def test_has_permission_super_admin():
+    """超级管理员恒放行（perm_codes 为 None）"""
+    assert has_permission(None, True, "SALES_ORDER_VIEW") is True
 
 
-def test_query_allowed_default():
-    """查询类操作无 user_info 时默认放行（读操作低风险）"""
-    assert evaluate_policy("query", None) == PolicyDecision.ALLOW
-    assert evaluate_policy("report", {}) == PolicyDecision.ALLOW
-    assert evaluate_policy("knowledge", {}) == PolicyDecision.ALLOW
+def test_has_permission_has_code():
+    """拥有权限码 → 放行"""
+    assert has_permission(["SALES_ORDER_VIEW"], False, "SALES_ORDER_VIEW") is True
 
 
-def test_write_denied_for_non_writer():
-    """无写权限角色创建单据被拒绝"""
-    decision = evaluate_policy("create", {"is_super_admin": False, "roles": ["viewer"]})
-    assert decision == PolicyDecision.DENY
+def test_has_permission_missing_code():
+    """缺少权限码 → 拒绝"""
+    assert has_permission(["INVENTORY_VIEW"], False, "SALES_ORDER_VIEW") is False
 
 
-def test_write_allowed_for_admin_role():
-    """admin 角色创建单据放行"""
-    assert evaluate_policy("create", {"roles": ["admin"]}) == PolicyDecision.ALLOW
+def test_has_permission_none_denied():
+    """非 admin 且权限码为 None（未加载）→ 安全默认拒绝"""
+    assert has_permission(None, False, "SALES_ORDER_VIEW") is False
 
 
-def test_write_allowed_for_super_admin():
-    """超级管理员即使无 roles 也放行"""
-    assert evaluate_policy("create", {"is_super_admin": True, "roles": []}) == PolicyDecision.ALLOW
+def test_has_permission_empty_list_denied():
+    """非 admin 且权限码为空列表 → 拒绝"""
+    assert has_permission([], False, "SALES_ORDER_VIEW") is False
 
+
+# ============================================================
+# evaluate_policy（风险控制层，非权限判定）
+# ============================================================
 
 def test_update_requires_confirmation():
     """update 是高风险，即使超级管理员也需人工确认"""
     assert evaluate_policy("update", {"is_super_admin": True}) == PolicyDecision.REQUIRE_CONFIRMATION
 
 
-def test_update_denied_takes_precedence():
-    """无写权限 + update：先拒绝，不会到确认阶段"""
-    assert evaluate_policy("update", {"roles": ["viewer"]}) == PolicyDecision.DENY
+def test_create_no_longer_role_gated():
+    """创建不再由自定义角色集合判定，权限下沉到 doc_type 级 ADD 权限码"""
+    assert evaluate_policy("create", {"is_super_admin": False, "roles": ["viewer"]}) == PolicyDecision.ALLOW
+
+
+def test_read_actions_allow():
+    """读操作默认放行，权限下沉到表级 VIEW 权限码校验"""
+    assert evaluate_policy("query") == PolicyDecision.ALLOW
+    assert evaluate_policy("report") == PolicyDecision.ALLOW
+    assert evaluate_policy("knowledge") == PolicyDecision.ALLOW
+
+
+# ============================================================
+# 权限码映射表（后端 ERP 权限码命名：{业务对象}_{操作}）
+# ============================================================
+
+def test_table_view_permission_mapping():
+    """表名 → VIEW 权限码映射正确"""
+    assert TABLE_VIEW_PERMISSION["sales_order"] == "SALES_ORDER_VIEW"
+    assert TABLE_VIEW_PERMISSION["inventory"] == "INVENTORY_VIEW"
+    assert TABLE_VIEW_PERMISSION["warehouse"] == "WAREHOUSE_VIEW"
+    # 明细表跟随主单
+    assert TABLE_VIEW_PERMISSION["purchase_order_item"] == "PURCHASE_ORDER_VIEW"
+
+
+def test_doc_type_add_permission_mapping():
+    """doc_type → ADD 权限码映射正确"""
+    assert DOC_TYPE_ADD_PERMISSION["sales_order"] == "SALES_ORDER_ADD"
+    assert DOC_TYPE_ADD_PERMISSION["purchase_order"] == "PURCHASE_ORDER_ADD"
+    assert DOC_TYPE_ADD_PERMISSION["expense_reimbursement"] == "EXPENSE_ADD"
 
 
 # ============================================================

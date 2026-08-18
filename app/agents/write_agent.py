@@ -16,6 +16,7 @@ from typing import Optional
 from app.adapter.erp_adapter import erp_adapter
 from app.agent.llm_client import llm_client
 from app.memory import session_memory
+from app.policy.engine import has_permission, DOC_TYPE_ADD_PERMISSION
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,8 @@ class WriteAgent:
     """写操作 Agent"""
 
     async def execute(self, user_input: str, messages: list[dict], context: dict,
-                      session_id: str, user_id: int, tenant_id: int) -> dict:
+                      session_id: str, user_id: int, tenant_id: int,
+                      user_permissions: dict | None = None) -> dict:
         try:
             # 1. 构建对话上下文
             context_block = self._build_context_block(messages, context)
@@ -140,6 +142,19 @@ class WriteAgent:
                 }
 
             doc_config = DOC_TYPE_FIELDS[doc_type]
+
+            # 2.5 权限校验：doc_type → ADD 权限码（后端 ERP 权限码驱动，非自定义角色）
+            need_code = DOC_TYPE_ADD_PERMISSION.get(doc_type)
+            if need_code and user_permissions is not None:
+                perm_codes = user_permissions.get("perm_codes")
+                is_admin = user_permissions.get("is_super_admin", False)
+                if not has_permission(perm_codes, is_admin, need_code):
+                    logger.warning(f"权限拦截：缺少 {need_code} 权限，拒绝创建 {doc_config['name']}")
+                    return {
+                        "status": "denied",
+                        "message": f"无权限创建{doc_config['name']}（缺少权限码 {need_code}）",
+                        "error_code": "PERMISSION_DENIED",
+                    }
 
             # 3. 校验必填字段
             missing_fields = []
