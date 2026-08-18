@@ -75,6 +75,11 @@ async def index():
         .search:focus, .task-input:focus, .composer-input:focus { border-color: rgba(37,99,235,.45); box-shadow: 0 0 0 3px rgba(37,99,235,.10); }
         .session-list { flex: 1 1 46%; overflow-y: auto; padding: 4px 8px 12px; min-height: 0; }
         .session-group-head, .task-group-head { padding: 10px 10px 6px; color: var(--faint); font-size: 11px; letter-spacing: 0; }
+        .session-group-head { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 5px; }
+        .session-group-head:hover { color: var(--muted); }
+        .session-group-head .caret { display: inline-block; width: 11px; color: var(--muted); transition: transform .15s ease; }
+        .session-group.collapsed .session-item { display: none; }
+        .session-group.collapsed .caret { transform: rotate(-90deg); }
         .session-item {
             display: flex;
             gap: 10px;
@@ -530,7 +535,7 @@ async def index():
                     (ts >= todayStart ? groups[0] : ts >= yesterdayStart ? groups[1] : groups[2]).items.push(s);
                 });
                 sessionList.innerHTML = groups.filter(g => g.items.length).map(g => (
-                    '<div class="session-group"><div class="session-group-head">' + g.name + ' <span>(' + g.items.length + ')</span></div>' +
+                    '<div class="session-group"><div class="session-group-head"><span class="caret">▾</span>' + g.name + ' <span>(' + g.items.length + ')</span></div>' +
                     g.items.map(s => {
                         const title = s.title || text.newChat;
                         const meta = (s.last_active_at ? new Date(s.last_active_at).toLocaleDateString('zh-CN') : '') + (s.message_count ? ' · ' + s.message_count + ' \u6761\u6d88\u606f' : '');
@@ -855,6 +860,8 @@ async def index():
         sessionList.addEventListener('click', e => {
             const del = e.target.closest('[data-del]');
             if (del) { e.stopPropagation(); deleteSession(del.dataset.del); return; }
+            const head = e.target.closest('.session-group-head');
+            if (head) { head.parentElement.classList.toggle('collapsed'); return; }
             const row = e.target.closest('.session-item');
             if (row) openSession(row.dataset.id);
         });

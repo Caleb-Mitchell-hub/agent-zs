@@ -12,11 +12,16 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import text
 
 from app.db.session import get_session
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_json_dumps(value) -> str:
+    return json.dumps(jsonable_encoder(value), ensure_ascii=False)
 
 
 class TaskMemory:
@@ -77,8 +82,8 @@ class TaskMemory:
                         "tenant_id": tenant_id,
                         "task_type": task_type,
                         "agent_name": agent_name,
-                        "input_data": json.dumps(input_data, ensure_ascii=False),
-                        "output_data": json.dumps(output_data, ensure_ascii=False),
+                        "input_data": _safe_json_dumps(input_data),
+                        "output_data": _safe_json_dumps(output_data),
                         "status": status,
                         "error_message": error_message,
                         "created_at": datetime.now(),
@@ -134,8 +139,8 @@ class TaskMemory:
                     {
                         "task_id": task_id,
                         "tool_name": tool_name,
-                        "tool_input": json.dumps(tool_input, ensure_ascii=False),
-                        "tool_output": json.dumps(tool_output, ensure_ascii=False),
+                        "tool_input": _safe_json_dumps(tool_input),
+                        "tool_output": _safe_json_dumps(tool_output),
                         "duration_ms": duration_ms,
                         "status": status,
                         "created_at": datetime.now(),

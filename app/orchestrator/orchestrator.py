@@ -72,6 +72,7 @@ class Orchestrator:
         intent: str = None,
         user_permissions: dict | None = None,
         progress_callback: Callable | None = None,
+        user_info: dict | None = None,
     ) -> dict:
         """处理用户请求（基于 LangGraph 图执行）
 
@@ -82,6 +83,7 @@ class Orchestrator:
             tenant_id: 租户 ID
             intent: 前端直达意图（可选，快捷按钮直接携带，跳过分类）
             progress_callback: 进度回调（可选，流式输出时由各图节点调用）
+            user_info: 用户完整信息（含 roles/is_super_admin，供 Policy Engine 做 RBAC 判定）
 
         Returns:
             dict: 执行结果
@@ -106,6 +108,7 @@ class Orchestrator:
             "messages": messages,
             "context": context,
             "user_permissions": user_permissions or {},
+            "user_info": user_info or {},
             "progress_callback": progress_callback,
         }
 

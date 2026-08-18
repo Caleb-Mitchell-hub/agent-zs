@@ -10,6 +10,7 @@ import json
 import logging
 from typing import Optional
 import redis.asyncio as redis
+from fastapi.encoders import jsonable_encoder
 
 from app.config import settings
 
@@ -82,7 +83,7 @@ async def save_session(session_id: str, session_data: dict, ttl: int = None):
     await r.setex(
         f"session:{session_id}",
         ttl,
-        json.dumps(session_data, ensure_ascii=False)
+        json.dumps(jsonable_encoder(session_data), ensure_ascii=False)
     )
 
 

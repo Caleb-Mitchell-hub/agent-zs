@@ -189,30 +189,33 @@ query / create / update / report / knowledge / memory / time / weather / chat / 
 【输出】"""
 
 
-# 任务规划 Prompt
-TASK_PLAN_PROMPT = """你是一个任务规划专家。根据用户目标，规划执行步骤。
+# 任务规划 Prompt（输出 Plan IR）
+PLAN_IR_PROMPT = """你是企业任务规划器。根据用户请求，将其拆解为可执行的任务步骤。
 
-## 用户目标
-{goal}
+## 可用能力（action 只能从以下选择，禁止创造不存在的动作）
+- query: 查询业务数据/统计（数据查询）
+- create: 创建业务单据（采购订单、销售订单、报销单等）
+- update: 修改/更新单据状态
+- report: 生成报表/图表/数据可视化
+- knowledge: 查询知识/规则/流程/制度
 
-## 可用工具
-- query_tool: 查询数据库
-- create_document: 创建单据
-- approval_tool: 审批流程
-- report_tool: 生成报表
-- knowledge_tool: 知识检索
-- image_parser: 图片解析
+## 规划规则
+1. 把用户的多个问题/任务拆成独立步骤，每个步骤一个 action
+2. 有依赖关系的步骤用 after 声明前置步骤 id（如 s3 需要 s1+s2 的结果，则 s3 的 after 为 ["s1","s2"]）
+3. 无依赖的步骤 after 为空数组，可并行执行
+4. 只使用上面的 action
+5. 涉及写操作（create/update）必须独立成步骤
+6. 参数写到 params 里：query 步骤用 {{"question": "..."}}，create/update 步骤用 {{"doc_type": "...", "params": {{...}}}}
 
-## 输出格式
-返回 JSON：
-{{
-    "steps": [
-        {{"id": 1, "tool": "工具名", "description": "步骤描述", "params": {{}}, "depends_on": []}},
-        {{"id": 2, "tool": "工具名", "description": "步骤描述", "params": {{}}, "depends_on": [1]}}
-    ]
-}}
+## 对话历史
+{history}
 
-## JSON"""
+## 用户请求
+{user_input}
+
+## 输出
+只输出 JSON，不要解释、不要代码块标记：
+{{"goal": "目标概述", "steps": [{{"id": "s1", "action": "query", "params": {{"question": "..."}}, "after": []}}]}}"""
 
 
 # create 意图前置正则匹配：处理"新增/新建/创建 + ... + 业务单据"组合
@@ -530,27 +533,40 @@ class Planner:
         logger.info(f"LLM 分类: {llm_raw}（输入: {user_input[:50]}）")
         return llm_raw
 
-    async def plan_task(self, goal: str) -> list[dict]:
-        """规划任务
+    async def plan_task(self, user_input: str, messages: list[dict] | None = None):
+        """规划任务：把用户请求拆解为 Plan IR（多任务 + 依赖关系）
 
         Args:
-            goal: 任务目标
+            user_input: 用户请求
+            messages: 对话历史
 
         Returns:
-            list[dict]: 执行步骤
+            Plan: 计划对象（plan_schema.Plan）
+
+        Raises:
+            ValueError: LLM 未返回有效的计划 JSON
         """
         import json
+        from app.orchestrator.plan_schema import plan_from_dict
 
-        prompt = TASK_PLAN_PROMPT.format(goal=goal)
+        history_text = "（无历史对话）"
+        if messages:
+            recent = messages[-10:]
+            if recent:
+                history_text = "\n".join([
+                    f"{'用户' if m['role'] == 'user' else 'AI'}: {m['content'][:200]}"
+                    for m in recent
+                ])
+
+        prompt = PLAN_IR_PROMPT.format(history=history_text, user_input=user_input)
         response = await llm_client.chat(prompt)
 
-        # 解析 JSON
+        # 解析 JSON（兼容 LLM 夹带代码块/解释文字）
         match = re.search(r'\{.*\}', response, re.DOTALL)
-        if match:
-            plan = json.loads(match.group())
-            return plan.get("steps", [])
-        else:
-            return []
+        if not match:
+            raise ValueError(f"LLM 未返回有效的计划 JSON: {response[:100]}")
+        data = json.loads(match.group())
+        return plan_from_dict(data)
 
 
 # 全局实例

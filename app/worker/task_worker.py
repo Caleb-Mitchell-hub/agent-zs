@@ -29,6 +29,9 @@ class TaskWorker:
         self._running = True
         logger.info("Task Worker 启动")
 
+        # 启动恢复：清理进程重启后中断的 RUNNING 任务
+        await self._recover_interrupted_tasks()
+
         # 启动心跳上报
         asyncio.create_task(self._heartbeat_loop())
 
@@ -59,6 +62,39 @@ class TaskWorker:
             except Exception as e:
                 logger.error(f"僵尸任务检测失败: {e}")
                 await asyncio.sleep(10)
+
+    async def _recover_interrupted_tasks(self):
+        """启动时恢复未完成任务
+
+        同步执行模型下，服务重启时 RUNNING 中的任务必然中断、无法安全续跑，
+        将其标记为 FAILED 避免永久卡死；WAITING_CONFIRM 是合法持久状态，
+        保留等待人工确认（由确认接口继续驱动）。
+        """
+        try:
+            task_ids = await runtime.get_running_workflows()
+            if not task_ids:
+                return
+            async for session in get_session():
+                for task_id in task_ids:
+                    # 只处理 RUNNING（中断）；WAITING_CONFIRM 保留
+                    await session.execute(
+                        text("""
+                            UPDATE tasks SET status = 'failed', updated_at = :updated_at
+                            WHERE task_id = :task_id AND status = 'running'
+                        """),
+                        {"task_id": task_id, "updated_at": datetime.now()},
+                    )
+                    await session.execute(
+                        text("""
+                            UPDATE task_steps SET status = 'failed', last_error = :err, updated_at = :updated_at
+                            WHERE task_id = :task_id AND status = 'running'
+                        """),
+                        {"task_id": task_id, "err": "服务重启，任务中断", "updated_at": datetime.now()},
+                    )
+                await session.commit()
+            logger.warning(f"启动恢复：处理了 {len(task_ids)} 个未完成任务（RUNNING→FAILED）")
+        except Exception as e:
+            logger.warning(f"启动恢复未完成任务失败: {e}")
 
     async def _update_heartbeat(self):
         """更新心跳时间"""

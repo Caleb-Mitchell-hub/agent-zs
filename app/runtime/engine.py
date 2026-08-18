@@ -179,6 +179,11 @@ class RuntimeEngine:
                 return {"status": "error", "message": f"任务不存在: {task_id}"}
 
             current_status = TaskStatus(row[0])
+
+            # 幂等检查：已完成的任务重复执行直接返回成功，避免重复副作用
+            if current_status == TaskStatus.SUCCEEDED:
+                return {"status": "ok", "task_id": task_id, "idempotent": True}
+
             if current_status == TaskStatus.PENDING:
                 await self._update_task_status(task_id, TaskStatus.PLANNING)
                 await self._update_task_status(task_id, TaskStatus.RUNNING)
@@ -425,6 +430,18 @@ class RuntimeEngine:
                 steps.append(step)
 
             return steps
+
+    async def get_running_workflows(self) -> list[str]:
+        """获取未完成任务（RUNNING/WAITING_CONFIRM）的 task_id 列表，供启动时恢复调度
+
+        服务重启后，这些任务可能卡在中间状态，需要 worker 重新拉起执行。
+        """
+        async for session in get_session():
+            result = await session.execute(
+                text("SELECT task_id FROM tasks WHERE status IN ('running', 'waiting_confirm')"),
+            )
+            rows = result.fetchall()
+            return [row[0] for row in rows]
 
     async def get_task_status(self, task_id: str) -> dict:
         """获取任务状态"""

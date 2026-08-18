@@ -1,9 +1,11 @@
 """查询端点 - 自然语言查询"""
 
+import json
 import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 
 from app.models.schemas import QueryRequest, QueryResponse
@@ -14,6 +16,11 @@ from app.services import session_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _safe_json_dumps(value: dict) -> str:
+    """将包含 date/datetime 等对象的 SSE 事件安全序列化为 JSON。"""
+    return json.dumps(jsonable_encoder(value), ensure_ascii=False)
 
 
 def _data_to_markdown(data: list[dict]) -> str:
@@ -97,6 +104,7 @@ async def natural_language_query(
         tenant_id=tenant_id,
         intent=req.intent,
         user_permissions=user_permissions,
+        user_info=user_info,
     )
 
     # 持久化：保存助手回复（数据用标准 Markdown 表格，历史回看格式不再变化）
@@ -163,6 +171,7 @@ async def natural_language_query_stream(
                     intent=intent or None,
                     user_permissions=user_permissions,
                     progress_callback=progress,
+                    user_info=user_info,
                 )
                 # 持久化：保存助手回复（数据用标准 Markdown 表格，与 POST /query 一致）
                 try:
@@ -190,7 +199,7 @@ async def natural_language_query_stream(
                 if await request.is_disconnected():
                     task.cancel()
                     break
-                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                yield f"data: {_safe_json_dumps(item)}\n\n"
                 await asyncio.sleep(0)
         finally:
             if not task.done():

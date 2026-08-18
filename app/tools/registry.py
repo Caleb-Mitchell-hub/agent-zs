@@ -31,6 +31,8 @@ class ToolMetadata:
     timeout: int = 30
     retry_count: int = 3
     enabled: bool = True  # 启停开关（配置中心可调）
+    capability: str = ""  # 工具能力标签（query/create/update/report/knowledge）
+    concurrency_limit: int = 0  # 并发上限（0 = 不限制，DAG 并行调度时使用）
 
 
 class ToolRegistry:
@@ -52,6 +54,8 @@ class ToolRegistry:
         need_confirm: bool = False,
         timeout: int = 30,
         retry_count: int = 3,
+        capability: str = "",
+        concurrency_limit: int = 0,
     ):
         """注册工具
 
@@ -66,6 +70,8 @@ class ToolRegistry:
             need_confirm: 是否需要确认
             timeout: 超时时间
             retry_count: 重试次数
+            capability: 能力标签（query/create/update/report/knowledge）
+            concurrency_limit: 并发上限（0 = 不限制）
         """
         metadata = ToolMetadata(
             name=name,
@@ -77,6 +83,8 @@ class ToolRegistry:
             need_confirm=need_confirm,
             timeout=timeout,
             retry_count=retry_count,
+            capability=capability,
+            concurrency_limit=concurrency_limit,
         )
 
         self._tools[name] = metadata
@@ -128,6 +136,8 @@ class ToolRegistry:
         need_confirm: bool = None,
         timeout: int = None,
         retry_count: int = None,
+        capability: str = None,
+        concurrency_limit: int = None,
     ):
         """应用运营策略（配置中心/启动时调用，叠加到注册元数据）
 
@@ -147,6 +157,10 @@ class ToolRegistry:
             meta.timeout = timeout
         if retry_count is not None:
             meta.retry_count = retry_count
+        if capability is not None:
+            meta.capability = capability
+        if concurrency_limit is not None:
+            meta.concurrency_limit = concurrency_limit
         logger.info(f"工具策略已应用: {tool_name}")
 
     def list_tools_full(self) -> list[dict]:
@@ -161,6 +175,8 @@ class ToolRegistry:
                 "timeout": meta.timeout,
                 "retry_count": meta.retry_count,
                 "enabled": meta.enabled,
+                "capability": meta.capability,
+                "concurrency_limit": meta.concurrency_limit,
             }
             for meta in self._tools.values()
         ]

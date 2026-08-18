@@ -51,6 +51,11 @@ class AgentState(TypedDict, total=False):
     trace_id: str
     agent_name: str
     error: str
+    user_permissions: dict   # 数据范围权限（ABAC）
+    user_info: dict          # 用户完整信息（roles/is_super_admin，供 RBAC 判定）
+    requires_planning: bool  # 是否走多任务规划路径
+    plan: dict               # Plan IR（任务计划）
+    plan_results: list[dict] # 各子任务执行结果
     progress_callback: Any  # 进度回调（可选，流式输出）
 
 
@@ -415,6 +420,144 @@ async def task_create_node(state: AgentState) -> dict:
     }
 
 
+# ─────────────────────────── 多任务编排节点 ───────────────────────────
+
+async def query_understanding_node(state: AgentState) -> dict:
+    """多意图识别与复杂度路由（确定性规则优先，LLM 兜底）"""
+    from app.orchestrator.query_understanding import query_understanding
+    analysis = await query_understanding.analyze(
+        state["user_input"], state.get("messages"),
+    )
+    return {"requires_planning": analysis["requires_planning"]}
+
+
+async def planning_node(state: AgentState) -> dict:
+    """任务规划：LLM 把用户请求拆解为 Plan IR（多任务 + 依赖）"""
+    plan = await planner.plan_task(state["user_input"], state.get("messages"))
+    return {"plan": plan.model_dump()}
+
+
+async def plan_validate_node(state: AgentState) -> dict:
+    """计划校验（确定性）：action 合法 / 依赖存在 / 环检测"""
+    from app.orchestrator.plan_schema import Plan
+    from app.orchestrator.plan_validator import validate_plan
+    plan = Plan.model_validate(state["plan"])
+    check = validate_plan(plan)
+    if not check["valid"]:
+        logger.error(f"计划校验失败: {check['errors']}")
+        return {
+            "result": {"status": "error", "message": "任务规划失败：" + "；".join(check["errors"])},
+            "error": "invalid_plan",
+        }
+    return {}
+
+
+async def execute_plan_node(state: AgentState) -> dict:
+    """执行计划：DAG 拓扑分层并行调度（设计文档 §11「DAG Scheduler」）
+
+    按拓扑分层，每层内无依赖步骤用 asyncio.gather 并行执行；
+    层间串行（下一层依赖上一层的输出，通过步骤间传参 $step_id.output 注入）。
+    """
+    import asyncio
+    from app.orchestrator.plan_schema import Plan
+    from app.orchestrator.plan_validator import topological_layers
+    from app.orchestrator.task_executor import task_executor, resolve_params
+    from app.policy.engine import evaluate_policy, PolicyDecision
+
+    plan = Plan.model_validate(state["plan"])
+    layers = topological_layers(plan)
+    steps_by_id = {s.id: s for s in plan.steps}
+
+    results_by_step: dict[str, dict] = {}
+    plan_results: list[dict] = []
+
+    messages = state.get("messages") or []
+    context = state.get("context") or {}
+    session_id = state["session_id"]
+    user_id = state.get("user_id", 0)
+    tenant_id = state.get("tenant_id", 1)
+    user_permissions = state.get("user_permissions") or {}
+    user_info = state.get("user_info") or {}
+
+    # 落库：复用 RuntimeEngine 持久化任务/步骤快照（Phase 2 持久化恢复数据源）
+    # 失败不阻塞主流程（仅审计/恢复用途，非致命）
+    from app.runtime.engine import runtime, Step as RuntimeStep, StepStatus as RuntimeStepStatus
+    task_id = None
+    try:
+        task_id = await runtime.create_task(
+            str(session_id), str(user_id), str(tenant_id), plan.goal,
+            [
+                RuntimeStep(
+                    step_id=s.id,
+                    step_index=i,
+                    tool_name=s.action,  # action 即能力标识（query/create/...）
+                    input_params=s.params,
+                    depends_on=s.after,
+                )
+                for i, s in enumerate(plan.steps)
+            ],
+        )
+    except Exception as e:
+        logger.warning(f"计划落库失败（非致命，继续执行）: {e}")
+
+    async def persist_step(step_id: str, result: dict) -> None:
+        """步骤结果落库（非致命，失败仅记录日志）"""
+        if not task_id:
+            return
+        try:
+            status = result.get("status")
+            if status == "ok":
+                await runtime._update_step_status(step_id, RuntimeStepStatus.SUCCEEDED, output_result=result)
+            elif status == "waiting_confirm":
+                await runtime._update_step_status(step_id, RuntimeStepStatus.WAITING_CONFIRM)
+            else:
+                await runtime._update_step_status(step_id, RuntimeStepStatus.FAILED, last_error=result.get("message", ""))
+        except Exception as e:
+            logger.warning(f"步骤状态落库失败（非致命）: {e}")
+
+    for layer in layers:
+        async def run_one(step_id: str):
+            step = steps_by_id[step_id]
+            # 1. Policy 判定（RBAC / 风险）
+            decision = evaluate_policy(step.action, user_info)
+            if decision == PolicyDecision.DENY:
+                result = {"status": "denied", "message": f"无权限执行 {step.action}"}
+            elif decision == PolicyDecision.REQUIRE_CONFIRMATION:
+                result = {"status": "waiting_confirm", "message": f"{step.action} 需要人工确认后执行"}
+            else:
+                # 2. 步骤间传参（注入上游输出）
+                resolved = resolve_params(step.params, results_by_step)
+                # 3. 执行步骤
+                result = await task_executor.execute_step(
+                    step, resolved, messages, context,
+                    session_id, user_id, tenant_id, user_permissions,
+                )
+            await persist_step(step_id, result)
+            return step_id, result
+
+        layer_results = await asyncio.gather(*[run_one(sid) for sid in layer])
+        for step_id, result in layer_results:
+            results_by_step[step_id] = result
+            plan_results.append({
+                "step_id": step_id,
+                "action": steps_by_id[step_id].action,
+                "result": result,
+            })
+
+    return {"plan_results": plan_results, "task_id": task_id}
+
+
+async def aggregate_node(state: AgentState) -> dict:
+    """结果聚合：把多个子任务结果汇总成一段连贯回答"""
+    from app.orchestrator.aggregator import aggregator
+    plan_results = state.get("plan_results") or []
+    message = await aggregator.aggregate(state["user_input"], plan_results)
+    return {
+        "result": {"status": "ok", "data": None, "sql": None, "message": message},
+        "agent_name": "planner",
+    }
+
+
 # ─────────────────────────── 路由（确定性条件边） ───────────────────────────
 
 def route_by_intent(state: AgentState) -> str:
@@ -434,6 +577,20 @@ def route_by_intent(state: AgentState) -> str:
         "task_create": "task_create_node",
     }
     return mapping.get(intent, "data_node")
+
+
+def route_after_understanding(state: AgentState) -> str:
+    """复杂度路由：复杂请求走规划路径，简单请求走原单意图路由（零回归）"""
+    if state.get("requires_planning"):
+        return "planning"
+    return route_by_intent(state)
+
+
+def route_after_validate(state: AgentState) -> str:
+    """计划校验失败直接落库结束，否则执行计划"""
+    if state.get("error") == "invalid_plan":
+        return "save_history"
+    return "execute_plan"
 
 
 def should_skip_after_security(state: AgentState) -> str:
@@ -462,6 +619,11 @@ def build_graph():
     g.add_node("weather_node", _with_progress("正在查询天气...", weather_node))
     g.add_node("task_plan_node", _with_progress("正在规划任务...", task_plan_node))
     g.add_node("task_create_node", _with_progress("正在创建任务...", task_create_node))
+    g.add_node("query_understanding", _with_progress("正在分析请求...", query_understanding_node))
+    g.add_node("planning", _with_progress("正在拆解任务...", planning_node))
+    g.add_node("plan_validate", plan_validate_node)
+    g.add_node("execute_plan", _with_progress("正在并行执行任务...", execute_plan_node))
+    g.add_node("aggregate", _with_progress("正在汇总结果...", aggregate_node))
     g.add_node("save_history", _with_progress("正在整理查询结果...", save_history))
     g.add_node("memory_extract", memory_extract)
 
@@ -473,12 +635,14 @@ def build_graph():
         {"continue": "save_user_message", "end": END},
     )
     g.add_edge("save_user_message", "classify_intent")
+    g.add_edge("classify_intent", "query_understanding")
 
-    # 路由：确定性条件边，分发到 5 个执行节点
+    # 复杂度路由：复杂请求走规划，简单请求走原单意图路由（零回归）
     g.add_conditional_edges(
-        "classify_intent",
-        route_by_intent,
+        "query_understanding",
+        route_after_understanding,
         {
+            "planning": "planning",
             "data_node": "data_node",
             "knowledge_node": "knowledge_node",
             "report_node": "report_node",
@@ -490,6 +654,16 @@ def build_graph():
             "task_create_node": "task_create_node",
         },
     )
+
+    # 规划路径：规划 → 校验 → (执行计划 → 聚合) / (失败 → 落库)
+    g.add_edge("planning", "plan_validate")
+    g.add_conditional_edges(
+        "plan_validate",
+        route_after_validate,
+        {"execute_plan": "execute_plan", "save_history": "save_history"},
+    )
+    g.add_edge("execute_plan", "aggregate")
+    g.add_edge("aggregate", "save_history")
 
     # 执行节点 → 保存历史 → 记忆抽取 → 结束
     for node in ("data_node", "knowledge_node", "report_node", "write_node", "conversation_node", "time_node", "weather_node", "task_plan_node", "task_create_node"):
