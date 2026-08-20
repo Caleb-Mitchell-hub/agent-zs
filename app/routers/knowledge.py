@@ -427,8 +427,12 @@ async def knowledge_page():
         async function api(path, options) {
             const res = await fetch(API + path, options ? Object.assign({ headers: authHeaders(options.headers) }, options) : { headers: authHeaders() });
             const data = await res.json().catch(() => ({}));
+            if (res.status === 401) { localStorage.removeItem('token'); window.location.href = '/login'; throw new Error('登录已过期，请重新登录'); }
             if (res.status === 403) { alert('无知识库管理权限'); throw new Error('forbidden'); }
-            if (!res.ok) throw new Error(data.message || data.detail || ('请求失败 ' + res.status));
+            if (!res.ok) {
+                const msg = (data.detail && typeof data.detail === 'object') ? (data.detail.message || JSON.stringify(data.detail)) : (data.message || data.detail);
+                throw new Error(msg || ('请求失败 ' + res.status));
+            }
             return data;
         }
 
@@ -510,7 +514,11 @@ async def knowledge_page():
             fd.append('category', document.getElementById('fCategory').value);
             const res = await fetch(API + '/bases/' + kbId + '/docs/upload', { method: 'POST', headers: authHeaders(), body: fd });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) return alert(data.message || data.detail || '上传失败');
+            if (res.status === 401) { localStorage.removeItem('token'); window.location.href = '/login'; return; }
+            if (!res.ok) {
+                const msg = (data.detail && typeof data.detail === 'object') ? (data.detail.message || '上传失败') : (data.message || data.detail || '上传失败');
+                return alert(msg);
+            }
             closeModal(); toast('文档已上传'); loadDocs();
         }
         async function toggleDoc(id, cur) {
