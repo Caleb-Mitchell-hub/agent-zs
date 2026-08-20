@@ -425,7 +425,7 @@ async def knowledge_page():
         }
 
         async function api(path, options) {
-            const res = await fetch(API + path, options ? Object.assign({ headers: authHeaders(options.headers) }, options) : { headers: authHeaders() });
+            const res = await fetch(API + path, options ? Object.assign({}, options, { headers: authHeaders(options.headers) }) : { headers: authHeaders() });
             const data = await res.json().catch(() => ({}));
             if (res.status === 401) { localStorage.removeItem('token'); window.location.href = '/login'; throw new Error('登录已过期，请重新登录'); }
             if (res.status === 403) { alert('无知识库管理权限'); throw new Error('forbidden'); }
