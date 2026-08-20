@@ -9,9 +9,9 @@
 import logging
 from typing import Optional
 
-from app.tools.search_tool import SearchTool
 from app.agent.llm_client import llm_client
 from app.memory import session_memory
+from app.services import knowledge_service
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +60,6 @@ FALLBACK_PROMPT = """你是一个企业 AI 助手，同时也是一个智能客�
 class KnowledgeAgent:
     """知识检索 Agent"""
 
-    def __init__(self):
-        self.search_tool = SearchTool()
-
     async def execute(
         self,
         user_input: str,
@@ -86,12 +83,10 @@ class KnowledgeAgent:
             dict: 执行结果
         """
         try:
-            # 1. 使用 Search Tool 检索知识库
-            search_result = await self.search_tool.execute(
-                query=user_input,
-                top_k=5,
-            )
+            # 1. 统一知识检索（带租户隔离；FAQ 精确命中直接返回标准答案）
+            search_result = await knowledge_service.search(user_input, tenant_id, top_k=5)
 
+            exact = search_result.get("exact")
             chunks = search_result.get("chunks", [])
 
             # 2. 更新上下文
@@ -100,14 +95,23 @@ class KnowledgeAgent:
                 "last_knowledge_count": len(chunks),
             })
 
-            # 3. 构建对话上下文（历史 + 上一轮数据查询参考）
+            # 3. FAQ 精确命中 → 原样返回标准答案，不经过 LLM
+            if exact:
+                return {
+                    "status": "ok",
+                    "data": [{"title": exact.get("question", ""), "content": exact.get("answer", "")}],
+                    "message": exact.get("answer", ""),
+                    "source": "faq_exact",
+                }
+
+            # 4. 构建对话上下文（历史 + 上一轮数据查询参考）
             context_block = self._build_context_block(messages, context)
 
-            # 4. 根据检索结果选择 Prompt 并生成回答
+            # 5. 根据检索结果选择 Prompt 并生成回答
             if chunks:
-                # 有检索结果 → RAG 模式
+                # 有检索结果 → RAG 模式（FAQ 片段优先用答案正文）
                 chunks_text = "\n\n---\n\n".join([
-                    f"【知识片段 {i+1}】标题：{c.get('title', '无标题')}\n内容：{c.get('content', '')}"
+                    f"【知识片段 {i+1}】标题：{c.get('title', '无标题')}\n内容：{c.get('answer') or c.get('content', '')}"
                     for i, c in enumerate(chunks)
                 ])
                 prompt = RAG_PROMPT.format(

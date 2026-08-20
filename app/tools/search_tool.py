@@ -26,6 +26,48 @@ FIELD_CONTENT = "content"
 FIELD_CATEGORY = "category"
 
 
+async def get_embedding(text: str, dim: int = 1024) -> list[float]:
+    """调用 Embedding API 将文本转为向量（模块级，供 SearchTool 与知识库服务复用）
+
+    Args:
+        text: 待向量化文本
+        dim: 返回向量维度（Embedding API 未配置或调用失败时返回该维度零向量）
+
+    Returns:
+        list[float]: 向量
+    """
+    api_url = settings.embedding_api_url
+    api_key = settings.embedding_api_key
+    model = settings.embedding_model
+
+    if not api_url or not api_key:
+        logger.warning("Embedding API 未配置，使用零向量占位")
+        return [0.0] * dim
+
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                api_url,
+                json={"model": model, "input": text, "encoding_format": "float"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=30,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                embedding = data.get("data", [{}])[0].get("embedding", [])
+                if embedding:
+                    return embedding
+            logger.warning(f"Embedding API 返回异常: {response.status_code}")
+    except Exception as e:
+        logger.warning(f"Embedding API 调用失败: {e}")
+
+    return [0.0] * dim
+
+
 class SearchTool:
     """向量检索工具（Milvus 后端）"""
 
@@ -144,38 +186,7 @@ class SearchTool:
 
     async def _get_embedding(self, text: str) -> list[float]:
         """调用 Embedding API 将文本转为向量"""
-        api_url = settings.embedding_api_url
-        api_key = settings.embedding_api_key
-        model = settings.embedding_model
-
-        if not api_url or not api_key:
-            logger.warning("Embedding API 未配置，使用零向量占位")
-            return [0.0] * self.dim
-
-        try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    api_url,
-                    json={"model": model, "input": text, "encoding_format": "float"},
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=30,
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    embedding = data.get("data", [{}])[0].get("embedding", [])
-                    if embedding:
-                        return embedding
-
-                logger.warning(f"Embedding API 返回异常: {response.status_code}")
-
-        except Exception as e:
-            logger.warning(f"Embedding API 调用失败: {e}")
-
-        return [0.0] * self.dim
+        return await get_embedding(text, self.dim)
 
     async def _search_vectors(
         self,

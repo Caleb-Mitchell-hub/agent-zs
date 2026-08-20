@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent-Zs 查询流程</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; max-width: 1100px; margin: 0 auto; padding: 24px; color: #1f2937; background: #ffffff; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 16px; margin-top: 36px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+  .mermaid { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; overflow-x: auto; margin-bottom: 16px; }
+  .legend { font-size: 12px; color: #6b7280; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>Agent-Zs：从前端提问到返回的完整流程</h1>
+<div class="sub">节点名全中文 · 菱形为路由/判定分支 · 实线为正常流转</div>
+
+<h2>一、编排主流程（所有节点与链路）</h2>
+<div class="mermaid">
+graph TD
+    前端提问["前端提问"] --> 令牌校验["令牌校验（鉴权）"]
+    令牌校验 --> 限流检查["限流检查"]
+    限流检查 --> 会话持久化["会话持久化"]
+    会话持久化 --> 编排入口["编排器入口（加载历史/上下文）"]
+    编排入口 --> 安全检查["安全检查（注入防护）"]
+    安全检查 -->|"安全"| 保存消息["保存用户消息"]
+    安全检查 -->|"不安全"| 终止["终止"]
+    保存消息 --> 意图分类["意图分类（规则+大模型兜底）"]
+    意图分类 --> 请求理解["请求理解（复杂度识别）"]
+    请求理解 --> 复杂度路由{"复杂度路由"}
+    复杂度路由 -->|"复杂请求"| 任务规划["任务规划（大模型拆解）"]
+    复杂度路由 -->|"简单请求"| 意图路由{"意图路由"}
+    意图路由 -->|"查询"| 数据查询["数据查询（NL→SQL）"]
+    意图路由 -->|"知识"| 知识检索["知识检索"]
+    意图路由 -->|"报表"| 报表生成["报表生成"]
+    意图路由 -->|"创建/更新"| 写操作["写操作"]
+    意图路由 -->|"闲聊"| 对话闲聊["对话闲聊"]
+    意图路由 -->|"时间"| 时间查询["时间查询"]
+    意图路由 -->|"天气"| 天气查询["天气查询"]
+    意图路由 -->|"任务规划"| 任务预览["任务规划预览"]
+    意图路由 -->|"创建任务"| 创建任务["创建任务"]
+    任务规划 --> 计划校验["计划校验（确定性）"]
+    计划校验 -->|"通过"| 执行计划["执行计划（DAG并行）"]
+    计划校验 -->|"失败"| 保存历史
+    执行计划 --> 结果聚合["结果聚合（大模型汇总）"]
+    结果聚合 --> 保存历史["保存历史"]
+    数据查询 --> 保存历史
+    知识检索 --> 保存历史
+    报表生成 --> 保存历史
+    写操作 --> 保存历史
+    对话闲聊 --> 保存历史
+    时间查询 --> 保存历史
+    天气查询 --> 保存历史
+    任务预览 --> 保存历史
+    创建任务 --> 保存历史
+    保存历史 --> 记忆抽取["记忆抽取（每10条）"]
+    记忆抽取 --> 返回结果["返回结果"]
+    返回结果 --> 前端渲染["前端渲染表格"]
+</div>
+
+<h2>二、数据查询节点内部（NL→SQL 细节）</h2>
+<div class="mermaid">
+graph TD
+    数据查询节点["数据查询节点"] --> 权限判定{"权限判定（RBAC）"}
+    权限判定 -->|"拒绝"| 无权限["返回无权限"]
+    权限判定 -->|"放行"| 追问复用{"追问复用判断"}
+    追问复用 -->|"可复用"| 复用结果["复用上次结果返回"]
+    追问复用 -->|"需新查询"| 查询改写["查询改写（补全省略）"]
+    查询改写 --> 生成SQL["大模型生成 SQL"]
+    生成SQL --> 提取SQL["提取 SQL"]
+    提取SQL --> 澄清判断{"需澄清？"}
+    澄清判断 -->|"是"| 返回澄清["返回澄清问题"]
+    澄清判断 -->|"否"| 列名校验["列名校验（拦截幻觉字段）"]
+    列名校验 --> 行级过滤["行级过滤（数据范围）"]
+    行级过滤 --> 表级权限["表级权限校验（权限码）"]
+    表级权限 --> 执行SQL["执行 SQL（错误自动修正）"]
+    执行SQL --> 字段转换["字段中文转换"]
+    字段转换 --> 生成摘要["生成摘要"]
+    生成摘要 --> 返回结果2["返回结果"]
+</div>
+
+<div class="legend">提示：若图未显示，说明当前无网络加载脚本，可改用下方 ASCII 流程图。</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { useMaxWidth: true } });
+</script>
+</body>
+</html>

@@ -154,3 +154,30 @@ async def require_admin(
             detail={"status": "error", "message": "需要管理员权限", "error_code": "FORBIDDEN"},
         )
     return user_info
+
+
+async def require_knowledge_admin(
+    user_info: dict = Depends(verify_token),
+) -> dict:
+    """知识库管理权限依赖（FastAPI 依赖）
+
+    先调用 verify_token 验证 JWT，再判断是否拥有知识库管理权限：
+    - 超级管理员（is_super_admin）恒放行
+    - 或 permissions 中包含 ERP 侧分配的 AI_KB（知识库管理）权限码
+      （系统管理员 ROLE_ADMIN 已在 ERP 侧持有该权限码，自动放行）
+    非上述两者返回 403。
+
+    数据边界由 service 层按 user_info["tenant_id"] 强制过滤，
+    此处只做「能否管理知识库」的权限码判定。
+    """
+    if user_info.get("is_super_admin"):
+        return user_info
+
+    permissions = user_info.get("permissions") or []
+    if "AI_KB" in permissions:
+        return user_info
+
+    raise HTTPException(
+        status_code=403,
+        detail={"status": "error", "message": "需要知识库管理权限", "error_code": "FORBIDDEN"},
+    )

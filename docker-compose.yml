@@ -19,6 +19,9 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - QWEATHER_API_KEY=${QWEATHER_API_KEY}
       - QWEATHER_API_HOST=${QWEATHER_API_HOST}
+      - EMBEDDING_API_URL=${EMBEDDING_API_URL}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
     healthcheck:

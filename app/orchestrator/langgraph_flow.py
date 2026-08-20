@@ -197,10 +197,14 @@ async def data_node(state: AgentState) -> dict:
         # 否则 fall through 到正常查询
         logger.info(f"复用结果无效（{result.get('message')}），改为重新查询")
 
-    # 正常查询
+    # 正常查询（先做查询改写：把省略追问补全为自包含查询）
+    from app.orchestrator.query_rewriter import rewrite_if_needed
+    resolved_query = await rewrite_if_needed(
+        user_input, state.get("messages") or [], context,
+    )
     agent = DataAgent()
     result = await agent.execute(
-        user_input, state.get("messages") or [], context,
+        resolved_query, state.get("messages") or [], context,
         state["session_id"], state.get("user_id", 0), state.get("tenant_id", 1),
         state.get("user_permissions"),
     )
@@ -214,7 +218,7 @@ async def data_node(state: AgentState) -> dict:
                     "sql": result.get("sql"),
                     "count": len(result.get("data") or []),
                 },
-                "last_query": user_input,
+                "last_query": resolved_query,
             })
         except Exception as e:
             logger.warning(f"保存追问上下文失败: {e}")

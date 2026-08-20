@@ -59,10 +59,22 @@ class Settings(BaseSettings):
     milvus_collection: str = "knowledge_base"
     milvus_dim: int = 1024  # 向量维度（BAAI/bge-large-zh-v1.5 = 1024）
 
-    # Embedding 配置
-    embedding_api_url: str = ""  # 嵌入 API 地址，如 https://api.siliconflow.cn/v1/embeddings
-    embedding_api_key: str = ""  # 嵌入 API 密钥
-    embedding_model: str = "BAAI/bge-large-zh-v1.5"  # 嵌入模型名称
+    # Embedding 配置（从环境变量读取，不硬编码敏感信息）
+    embedding_api_url: str = ""  # 嵌入 API 地址，来源：env EMBEDDING_API_URL
+    embedding_api_key: str = ""  # 嵌入 API 密钥，来源：env EMBEDDING_API_KEY
+    embedding_model: str = "BAAI/bge-m3"  # 嵌入模型名称（非敏感，默认 bge-m3）
+
+    # 知识库管理配置（多租户知识库：MySQL 事实源 + Milvus 向量 + Redis 热点 FAQ）
+    knowledge_milvus_collection: str = "knowledge_base_v2"  # 新向量集合（带 tenant_id/kb_id/is_active）
+    knowledge_chunk_size: int = 500  # 文档切块目标长度（字）
+    knowledge_search_top_k: int = 5  # 向量检索默认返回数量
+    knowledge_max_upload_mb: int = 5  # 上传文件大小上限（MB）
+
+    # FAQ 热点缓存配置
+    knowledge_faq_cache_enabled: bool = True  # 是否启用 Redis 热点 FAQ 缓存
+    knowledge_faq_hot_threshold: int = 10  # 同一自然月命中该次数后晋升热点缓存
+    knowledge_faq_cache_ttl_days: int = 35  # 热点缓存 TTL（天）
+    knowledge_faq_hit_retention_months: int = 6  # 月度命中 ZSET 保留月数
 
     # 天气查询配置（和风天气 QWeather）
     # 2025-04 起推行独立 API Host，公共域名已逐步停用，须配置控制台分配的独立 Host
