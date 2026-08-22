@@ -252,28 +252,28 @@ async def index():
         }
         /* The accepted concept uses an open editorial workspace instead of a card drawer. */
         :root {
-            --bg: #f8f7f2;
-            --panel: #fffefa;
-            --panel-strong: #fffefa;
+            --bg: #fff;
+            --panel: #fff;
+            --panel-strong: #fff;
             --text: #17243b;
             --muted: #718096;
             --faint: #8795aa;
-            --line: #dfe5ed;
-            --line-strong: #c7d2df;
+            --line: #e7ebf0;
+            --line-strong: #d6dee8;
             --blue: #2f6bff;
             --blue-dark: #1f4fd2;
             --green: #20a99a;
             --amber: #e5a13d;
             --red: #f47d72;
-            --drawer-width: 392px;
+            --drawer-width: 292px;
             --shadow: none;
         }
-        body { background: radial-gradient(circle at 72% 10%, rgba(235, 242, 255, .72), transparent 38%), var(--bg); }
+        body { background: #fff; }
         .sidebar {
             inset: 0 auto 0 0;
             width: var(--drawer-width);
             padding: 0;
-            background: rgba(248,247,242,.96);
+            background: #fff;
             border: 0;
             border-right: 1px solid var(--line-strong);
             border-radius: 0;
@@ -281,18 +281,18 @@ async def index():
             backdrop-filter: none;
         }
         .drawer-collapsed .sidebar { transform: translateX(-100%); opacity: 0; }
-        .sidebar-header { padding: 34px 42px 20px; border-bottom: 0; }
-        .drawer-heading { margin-bottom: 24px; }
+        .sidebar-header { padding: 28px 32px 18px; border-bottom: 0; }
+        .drawer-heading { flex-direction: column; align-items: flex-start; gap: 22px; margin-bottom: 0; }
         .brand-mark { display: none; }
-        .drawer-name { font-size: 22px; font-weight: 750; letter-spacing: -.04em; }
+        .drawer-name { font-size: 20px; font-weight: 750; letter-spacing: -.04em; }
         .drawer-name small { display: none; }
-        .drawer-toggle { width: 30px; height: 30px; }
-        .new-chat-btn { width: auto; padding: 0; justify-content: flex-start; color: var(--blue); background: transparent; border-radius: 0; box-shadow: none; font-size: 14px; font-weight: 700; }
-        .new-chat-btn svg { width: 15px; height: 15px; }
+        .drawer-toggle { width: 24px; height: 24px; }
+        .drawer-toggle svg { width: 26px; height: 26px; }
+        .new-chat-btn, #sessionSearch, #taskTabs, #taskSearch, .task-add { display: none; }
         .search, .task-input { background: transparent; border: 0; border-bottom: 1px solid var(--line-strong); border-radius: 0; }
-        .search { margin: 0 42px 12px; width: calc(100% - 84px); padding: 10px 0; }
+        .search { margin: 0 32px 12px; width: calc(100% - 64px); padding: 10px 0; }
         .search:focus, .task-input:focus { border-color: var(--blue); box-shadow: none; }
-        .session-list { flex: 1 1 52%; padding: 8px 42px 18px; }
+        .session-list { flex: 1 1 60%; padding: 4px 32px 16px; }
         .session-group-head { padding: 14px 0 8px; color: var(--faint); border-bottom: 1px solid var(--line); font-size: 12px; }
         .session-group-head .caret { width: 12px; }
         .session-item { margin: 0; padding: 14px 0 14px 12px; border: 0; border-left: 3px solid transparent; border-radius: 0; gap: 12px; align-items: baseline; }
@@ -301,46 +301,40 @@ async def index():
         .session-title { font-size: 14px; font-weight: 650; }
         .session-meta { margin-top: 5px; color: var(--faint); font-size: 11px; }
         .icon-btn { border-radius: 0; }
-        .task-panel { flex: 1 1 48%; padding: 22px 42px 28px; border-top: 1px solid var(--line-strong); }
-        .task-head { padding: 0 0 14px; font-size: 18px; letter-spacing: -.03em; }
-        .task-tabs { display: flex; gap: 20px; padding: 0 0 12px; }
-        .task-tab { padding: 5px 0 8px; color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; }
-        .task-tab.active { color: var(--blue); background: transparent; border-color: var(--blue); font-weight: 700; }
-        .task-add { padding: 0 0 10px; }
-        .task-input { padding: 9px 0; font-size: 12px; }
-        .task-add-btn { width: 30px; height: 30px; border: 1px solid var(--blue); border-radius: 50%; color: var(--blue); background: transparent; font-weight: 600; }
+        .task-panel { flex: 1 1 40%; padding: 20px 32px 24px; border-top: 1px solid var(--line-strong); }
+        .task-head { padding: 0 0 12px; font-size: 20px; letter-spacing: -.03em; }
         .task-list { padding: 0; }
         .task-group-head { padding: 14px 0 7px; color: var(--faint); font-size: 11px; }
-        .task-item { padding: 9px 0; border-radius: 0; font-size: 13px; }
+        .task-item { padding: 8px 0; border-radius: 0; font-size: 13px; }
         .dot { width: 7px; height: 7px; }
         .pending { background: var(--blue); }
         .doing { background: var(--amber); }
         .done { background: var(--green); }
         .overdue { background: var(--red); }
         .main { background: transparent; }
-        .topbar { height: 72px; justify-content: flex-end; padding: 0 52px; background: transparent; border-bottom: 1px solid var(--line); backdrop-filter: none; }
-        .drawer-open .topbar { padding-left: calc(var(--drawer-width) + 52px); }
+        .topbar { height: 72px; justify-content: flex-end; padding: 0 36px; background: #fff; border-bottom: 1px solid var(--line); backdrop-filter: none; }
+        .drawer-open .topbar { padding-left: calc(var(--drawer-width) + 36px); }
         .drawer-collapsed .topbar { padding-left: 18px; }
         .drawer-open-btn { width: 34px; height: 34px; color: var(--blue); background: transparent; border-radius: 0; }
         .nav { gap: 24px; color: var(--text); font-size: 13px; }
         .nav a { color: var(--text); font-weight: 650; }
         .nav a:hover, .nav a:focus { color: var(--blue); }
-        .chat-area { max-width: none; width: 100%; margin: 0; padding: 32px 52px 30px; }
-        .drawer-open .chat-area, .drawer-open .calendar-area { max-width: none; width: auto; margin-left: calc(var(--drawer-width) + 58px); margin-right: 52px; }
-        .chat-box { width: 100%; max-width: 970px; margin: 0 auto; padding: 24px 0 46px; }
+        .chat-area { max-width: none; width: 100%; margin: 0; padding: 28px 34px 24px; background: #fff; }
+        .drawer-open .chat-area, .drawer-open .calendar-area { max-width: none; width: auto; margin-left: calc(var(--drawer-width) + 120px); margin-right: 34px; }
+        .chat-box { width: 100%; max-width: 760px; margin: 0; padding: 20px 0 42px; }
         .welcome { padding: 96px 20px; text-align: left; }
         .welcome h2 { font-size: 22px; font-weight: 650; }
         .message { gap: 18px; margin-bottom: 48px; }
         .avatar { width: 58px; height: auto; min-height: 24px; border-radius: 0; color: var(--text); background: transparent; font-size: 13px; font-weight: 700; justify-items: start; }
         .user .avatar, .assistant .avatar { color: var(--text); background: transparent; border: 0; }
         .msg-body { max-width: 760px; }
-        .content { padding: 0; border-radius: 0; line-height: 1.9; font-size: 16px; }
+        .content { padding: 0; border-radius: 0; line-height: 1.85; font-size: 15px; }
         .user .content { color: var(--text); background: transparent; border: 0; }
         .assistant .content { padding: 24px 0 0; border-top: 2px solid var(--blue); }
         .message-meta { margin-top: 12px; color: var(--faint); }
         .message-action:hover, .message-action.selected { color: var(--blue); background: transparent; }
-        .typing { max-width: 970px; width: 100%; margin: 0 auto 18px; padding: 0 0 8px; border: 0; border-radius: 0; color: var(--muted); background: transparent; }
-        .composer { max-width: 970px; width: 100%; margin: 0 auto; gap: 12px; padding: 14px 0 0; background: transparent; border: 0; border-top: 1px solid var(--line-strong); border-radius: 0; box-shadow: none; }
+        .typing { max-width: 760px; width: 100%; margin: 0 0 18px; padding: 0 0 8px; border: 0; border-radius: 0; color: var(--muted); background: transparent; }
+        .composer { max-width: 760px; width: 100%; margin: 0; gap: 12px; padding: 12px 0 0; background: #fff; border: 0; border-top: 1px solid var(--line-strong); border-radius: 0; box-shadow: none; }
         .composer-input { padding: 8px 0; font-size: 16px; background: transparent; border: 0; }
         .composer-input:focus { border: 0; box-shadow: none; }
         .attach-btn, .send-btn { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; color: var(--blue); background: transparent; border: 0; border-radius: 0; box-shadow: none; }
@@ -349,7 +343,7 @@ async def index():
         .attach-btn svg { width: 19px; height: 19px; }
         .send-btn svg { width: 20px; height: 20px; }
         .send-btn:disabled { color: var(--faint); background: transparent; box-shadow: none; }
-        .attachment-status { max-width: 970px; width: 100%; margin: 0 auto 8px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+        .attachment-status { max-width: 760px; width: 100%; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
         .attachment-status[hidden] { display: none; }
         .attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .attachment-clear { width: 20px; height: 20px; color: var(--faint); background: transparent; font-size: 18px; line-height: 1; }
@@ -375,8 +369,8 @@ async def index():
     <aside class="sidebar" id="sidebar" aria-label="&#23545;&#35805;&#19982;&#20219;&#21153;&#21015;&#34920;">
         <div class="sidebar-header">
             <div class="drawer-heading">
+                <button class="icon-btn drawer-toggle" id="drawerToggle" type="button" aria-label="&#25910;&#36215;&#20391;&#36793;&#26639;" title="&#25910;&#36215;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
                 <div class="drawer-name">&#23545;&#35805;</div>
-                <button class="icon-btn drawer-toggle" id="drawerToggle" type="button" aria-label="&#25910;&#36215;&#20391;&#36793;&#26639;" title="&#25910;&#36215;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
             </div>
             <button class="new-chat-btn" id="newChatBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>&#26032;&#23545;&#35805;</span></button>
         </div>
@@ -384,7 +378,7 @@ async def index():
         <span id="sessionCount" hidden></span>
         <div class="session-list" id="sessionList"><div class="empty">&#21152;&#36733;&#20013;...</div></div>
         <section class="task-panel">
-            <div class="task-head"><span>&#20219;&#21153;&#21015;&#34920; <span id="taskCount"></span></span><button class="icon-btn" id="taskToggle" title="toggle">&#9662;</button></div>
+            <div class="task-head"><span>&#20219;&#21153; <span id="taskCount"></span></span><button class="icon-btn" id="taskToggle" title="toggle">&#9662;</button></div>
             <div class="task-tabs" id="taskTabs">
                 <button class="task-tab active" data-filter="all">&#20840;&#37096;</button>
                 <button class="task-tab" data-filter="done">&#24050;&#23436;&#25104;</button>

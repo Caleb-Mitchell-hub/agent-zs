@@ -47,11 +47,16 @@ class FrontendChatContractTests(unittest.TestCase):
         self.assertNotRegex(self.html, r'<div class="brand">')
 
     def test_editorial_sidebar_and_attachment_control_are_present(self):
-        self.assertIn('--drawer-width: 392px', self.html)
+        self.assertIn('--drawer-width: 292px', self.html)
         self.assertRegex(self.html, r'\.sidebar\s*\{[^}]*border-right:\s*1px')
         self.assertIn('class="attach-btn"', self.html)
         self.assertIn('id="fileInput"', self.html)
         self.assertIn('id="attachmentStatus"', self.html)
+
+    def test_concept_sidebar_is_compact_white_and_text_first(self):
+        self.assertIn('--drawer-width: 292px', self.html)
+        self.assertIn('background: #fff', self.html)
+        self.assertRegex(self.html, r'\.new-chat-btn,\s*#sessionSearch,\s*#taskTabs,\s*#taskSearch,\s*\.task-add\s*\{\s*display:\s*none;')
 
 
 if __name__ == "__main__":
