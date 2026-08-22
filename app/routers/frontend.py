@@ -131,7 +131,7 @@ async def index():
         .doing { background: var(--amber); }
         .done { background: var(--green); }
         .overdue { background: var(--red); }
-        .main { width: 100%; min-width: 0; display: flex; flex-direction: column; }
+        .main { width: 100%; height: 100vh; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
         .topbar {
             height: 72px;
             display: flex;
@@ -188,14 +188,14 @@ async def index():
         .message-action svg { width: 16px; height: 16px; }
         .message-action:hover, .message-action.selected { color: var(--blue); background: rgba(47,102,246,.08); }
         .message-time { padding: 0 5px; }
-        .typing { display: none; align-items: center; gap: 9px; width: fit-content; margin: 0 0 14px 52px; padding: 9px 13px; border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.84); border: 1px solid var(--line); font-size: 12.5px; }
+        .typing { display: none; flex: 0 0 auto; align-items: center; gap: 9px; width: fit-content; margin: 0 0 14px 52px; padding: 9px 13px; border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.84); border: 1px solid var(--line); font-size: 12.5px; }
         .typing.show { display: inline-flex; }
         .typing-dots { display: inline-flex; gap: 4px; }
         .typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite ease-in-out; }
         .typing-dots span:nth-child(2) { animation-delay: .15s; }
         .typing-dots span:nth-child(3) { animation-delay: .3s; }
         @keyframes pulse { 0%, 80%, 100% { opacity: .32; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
-        .composer { display: flex; gap: 10px; align-items: center; padding: 9px 10px 9px 14px; background: rgba(255,255,255,.86); border: 1px solid rgba(151,166,193,.32); border-radius: 20px; box-shadow: 0 14px 34px rgba(43,64,105,.08); }
+        .composer { display: flex; flex: 0 0 auto; gap: 10px; align-items: center; padding: 9px 10px 9px 14px; background: rgba(255,255,255,.86); border: 1px solid rgba(151,166,193,.32); border-radius: 20px; box-shadow: 0 14px 34px rgba(43,64,105,.08); }
         .composer-input { flex: 1; padding: 10px 5px; background: transparent; border: 0; }
         .composer-input:focus { border: 0; box-shadow: none; }
         .send-btn { width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border-radius: 13px; }
@@ -266,6 +266,7 @@ async def index():
             <button class="new-chat-btn" id="newChatBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>&#26032;&#23545;&#35805;</span></button>
         </div>
         <input class="search" id="sessionSearch" type="text" placeholder="&#25628;&#32034;&#23545;&#35805;...">
+        <span id="sessionCount" hidden></span>
         <div class="session-list" id="sessionList"><div class="empty">&#21152;&#36733;&#20013;...</div></div>
         <section class="task-panel">
             <div class="task-head"><span>&#20219;&#21153;&#21015;&#34920; <span id="taskCount"></span></span><button class="icon-btn" id="taskToggle" title="toggle">&#9662;</button></div>
@@ -437,6 +438,67 @@ async def index():
         function generateSessionId() {
             return 'web-' + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
         }
+        const LOCAL_SESSION_CACHE_KEY = 'agent_zs_conversation_cache_v1';
+        function readConversationCache() {
+            try {
+                const raw = localStorage.getItem(LOCAL_SESSION_CACHE_KEY);
+                const cache = raw ? JSON.parse(raw) : {};
+                return cache && typeof cache === 'object' ? cache : {};
+            } catch (e) {
+                return {};
+            }
+        }
+        function writeConversationCache(cache) {
+            try { localStorage.setItem(LOCAL_SESSION_CACHE_KEY, JSON.stringify(cache)); } catch (e) {}
+        }
+        function cacheConversationMessage(sessionId, role, content, createdAt) {
+            if (!sessionId || !content) return;
+            const cache = readConversationCache();
+            const messages = Array.isArray(cache[sessionId]) ? cache[sessionId] : [];
+            messages.push({ role: role, content: String(content), created_at: createdAt || new Date().toISOString() });
+            cache[sessionId] = messages.slice(-200);
+            writeConversationCache(cache);
+        }
+        function loadCachedConversation(sessionId) {
+            const cache = readConversationCache();
+            return Array.isArray(cache[sessionId]) ? cache[sessionId] : [];
+        }
+        function replaceCachedConversation(sessionId, messages) {
+            if (!sessionId || !Array.isArray(messages) || !messages.length) return;
+            const cache = readConversationCache();
+            cache[sessionId] = messages.slice(-200).map(message => ({
+                role: message.role === 'user' ? 'user' : 'assistant',
+                content: String(message.content == null ? '' : message.content),
+                created_at: message.created_at || message.createdAt || message.timestamp || new Date().toISOString()
+            }));
+            writeConversationCache(cache);
+        }
+        function removeCachedConversation(sessionId) {
+            const cache = readConversationCache();
+            if (!Object.prototype.hasOwnProperty.call(cache, sessionId)) return;
+            delete cache[sessionId];
+            writeConversationCache(cache);
+        }
+        function mergeCachedSessions(sessions) {
+            const serverSessions = Array.isArray(sessions) ? sessions : [];
+            const serverIds = new Set(serverSessions.map(session => session.session_id));
+            const localOnly = Object.entries(readConversationCache())
+                .filter(([sessionId, messages]) => !serverIds.has(sessionId) && Array.isArray(messages) && messages.length)
+                .map(([sessionId, messages]) => {
+                    const firstUserMessage = messages.find(message => message.role === 'user');
+                    const lastMessage = messages[messages.length - 1];
+                    return {
+                        session_id: sessionId,
+                        title: (firstUserMessage && firstUserMessage.content || text.newChat).slice(0, 50),
+                        last_active_at: lastMessage && lastMessage.created_at || null,
+                        message_count: messages.length,
+                        _localOnly: true
+                    };
+                });
+            return serverSessions.concat(localOnly).sort((a, b) => {
+                return new Date(b.last_active_at || 0).getTime() - new Date(a.last_active_at || 0).getTime();
+            });
+        }
         function getUserDisplayName() {
             try {
                 const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -605,8 +667,13 @@ async def index():
                 feedback.forEach(other => other.classList.toggle('selected', other === item && !item.classList.contains('selected')));
             }));
             chatBox.appendChild(div);
-            chatBox.scrollTop = chatBox.scrollHeight;
+            scrollChatToBottom();
             return div;
+        }
+        function scrollChatToBottom(behavior) {
+            requestAnimationFrame(() => {
+                chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: behavior || 'auto' });
+            });
         }
         function addMessage(role, content, extraClass, rawText) {
             return addMessageEl(role, content, extraClass || '', rawText);
@@ -621,12 +688,17 @@ async def index():
                 }
             } catch (e) {}
         }
+        function updateSessionCount(count) {
+            const countEl = document.getElementById('sessionCount');
+            if (countEl) countEl.textContent = count ? '(' + count + ')' : '';
+        }
 
         async function loadSessionList() {
             try {
                 const res = await fetch(API_SESSIONS, { headers: authHeaders() });
+                if (!res.ok) throw new Error('sessions ' + res.status);
                 const data = await res.json();
-                let sessions = data.sessions || [];
+                let sessions = mergeCachedSessions(data.sessions || []);
                 document.getElementById('sessionCount').textContent = sessions.length ? '(' + sessions.length + ')' : '';
                 const kw = document.getElementById('sessionSearch').value.trim().toLowerCase();
                 if (kw) sessions = sessions.filter(s => (s.title || text.newChat).toLowerCase().includes(kw));
@@ -647,7 +719,19 @@ async def index():
                     }).join('') + '</div>'
                 )).join('');
             } catch (e) {
-                sessionList.innerHTML = '<div class="empty">' + text.noSessions + '</div>';
+                const sessions = mergeCachedSessions([]);
+                document.getElementById('sessionCount').textContent = sessions.length ? '(' + sessions.length + ')' : '';
+                const kw = document.getElementById('sessionSearch').value.trim().toLowerCase();
+                const visible = kw ? sessions.filter(s => (s.title || text.newChat).toLowerCase().includes(kw)) : sessions;
+                if (!visible.length) {
+                    sessionList.innerHTML = '<div class="empty">' + (kw ? text.noMatch : text.noSessions) + '</div>';
+                    return;
+                }
+                sessionList.innerHTML = visible.map(s => {
+                    const title = s.title || text.newChat;
+                    const meta = (s.last_active_at ? new Date(s.last_active_at).toLocaleDateString('zh-CN') : '') + (s.message_count ? ' · ' + s.message_count + ' \u6761\u6d88\u606f' : '');
+                    return '<div class="session-item' + (s.session_id === activeSessionId ? ' active' : '') + '" data-id="' + escapeHtml(s.session_id) + '"><div class="session-info"><div class="session-title">' + escapeHtml(title) + '</div><div class="session-meta">' + escapeHtml(meta) + '</div></div><button class="icon-btn danger" data-del="' + escapeHtml(s.session_id) + '" title="\u5220\u9664">×</button></div>';
+                }).join('');
             }
         }
         async function openSession(sessionId) {
@@ -655,14 +739,26 @@ async def index():
             activeSessionId = sessionId;
             localStorage.setItem('activeSessionId', sessionId);
             chatBox.innerHTML = '<div class="empty">' + text.loading + '</div>';
+            const cachedMessages = loadCachedConversation(sessionId);
             try {
                 const res = await fetch(API_SESSIONS + '/' + encodeURIComponent(sessionId) + '/messages', { headers: authHeaders() });
+                if (!res.ok) throw new Error('messages ' + res.status);
                 const data = await res.json();
+                const serverMessages = data.messages || [];
+                const msgs = serverMessages.length ? serverMessages : cachedMessages;
+                if (serverMessages.length) replaceCachedConversation(sessionId, serverMessages);
                 chatBox.innerHTML = '';
-                const msgs = data.messages || [];
                 if (!msgs.length) chatBox.innerHTML = '<div class="welcome"><p>' + text.newChat + '</p></div>';
                 msgs.forEach(m => addMessageEl(m.role === 'user' ? 'user' : 'assistant', m.role === 'user' ? escapeHtml(m.content) : formatMarkdown(m.content), 'history', m.content, m.created_at || m.createdAt || m.timestamp));
+                scrollChatToBottom('auto');
             } catch (e) {
+                if (cachedMessages.length) {
+                    chatBox.innerHTML = '';
+                    cachedMessages.forEach(m => addMessageEl(m.role === 'user' ? 'user' : 'assistant', m.role === 'user' ? escapeHtml(m.content) : formatMarkdown(m.content), 'history', m.content, m.created_at));
+                    scrollChatToBottom('auto');
+                    loadSessionList();
+                    return;
+                }
                 chatBox.innerHTML = '<div class="error-msg">\u52a0\u8f7d\u6d88\u606f\u5931\u8d25\uff1a' + escapeHtml(e.message) + '</div>';
             }
             loadSessionList();
@@ -671,6 +767,7 @@ async def index():
             if (!confirm(text.deleteConfirm)) return;
             try {
                 await fetch(API_SESSIONS + '/' + encodeURIComponent(sessionId), { method: 'DELETE', headers: authHeaders() });
+                removeCachedConversation(sessionId);
                 if (activeSessionId === sessionId) newChat();
                 loadSessionList();
             } catch (e) {
@@ -724,7 +821,9 @@ async def index():
             }
             const welcome = chatBox.querySelector('.welcome');
             if (welcome) welcome.remove();
-            addMessageEl('user', escapeHtml(q), '', q, new Date().toISOString());
+            const sentAt = new Date().toISOString();
+            addMessageEl('user', escapeHtml(q), '', q, sentAt);
+            cacheConversationMessage(activeSessionId, 'user', q, sentAt);
             input.value = '';
             input.disabled = true;
             sendBtn.disabled = true;
@@ -755,8 +854,9 @@ async def index():
                 }
                 if (finalData) {
                     if (finalData.task_created) loadTasks();
+                    const assistantText = assistantRawText(finalData);
+                    if (assistantText) cacheConversationMessage(activeSessionId, 'assistant', assistantText, new Date().toISOString());
                     // 重新读取已落库的会话消息，确保当前页和刷新后的展示完全一致。
-                    await openSession(activeSessionId);
                     await openSession(activeSessionId);
                 } else {
                     addMessage('assistant', '<div class="error-msg">' + text.noResult + '</div>');
