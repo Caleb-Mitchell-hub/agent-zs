@@ -289,6 +289,11 @@ async def index():
         .drawer-toggle { width: 24px; height: 24px; }
         .drawer-toggle svg { width: 26px; height: 26px; }
         .new-chat-btn, #sessionSearch, #taskTabs, #taskSearch, .task-add { display: none; }
+        .drawer-title-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .new-chat-btn { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; color: var(--blue); background: rgba(47,107,255,.07); border: 1px solid rgba(47,107,255,.2); border-radius: 50%; box-shadow: none; }
+        .new-chat-btn:hover, .new-chat-btn:focus-visible { color: #fff; background: var(--blue); border-color: var(--blue); outline: 0; }
+        .new-chat-btn svg { width: 16px; height: 16px; }
+        .new-chat-btn span { display: none; }
         .search, .task-input { background: transparent; border: 0; border-bottom: 1px solid var(--line-strong); border-radius: 0; }
         .search { margin: 0 32px 12px; width: calc(100% - 64px); padding: 10px 0; }
         .search:focus, .task-input:focus { border-color: var(--blue); box-shadow: none; }
@@ -348,6 +353,13 @@ async def index():
         .attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .attachment-clear { width: 20px; height: 20px; color: var(--faint); background: transparent; font-size: 18px; line-height: 1; }
         .attachment-clear:hover { color: var(--red); }
+        /* A collapsed drawer gives the chat workspace the full viewport width. */
+        .drawer-collapsed .chat-area, .drawer-collapsed .calendar-area { max-width: none; width: 100%; margin: 0; }
+        .drawer-collapsed .chat-box,
+        .drawer-collapsed .typing,
+        .drawer-collapsed .composer,
+        .drawer-collapsed .attachment-status { max-width: none; }
+        .drawer-collapsed .msg-body { max-width: none; flex: 1; }
         @media (max-width: 760px) {
             .sidebar { inset: 0 auto 0 0; width: min(var(--drawer-width), calc(100vw - 28px)); border-radius: 0; }
             .sidebar-header { padding: 24px 26px 18px; }
@@ -370,9 +382,11 @@ async def index():
         <div class="sidebar-header">
             <div class="drawer-heading">
                 <button class="icon-btn drawer-toggle" id="drawerToggle" type="button" aria-label="&#25910;&#36215;&#20391;&#36793;&#26639;" title="&#25910;&#36215;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-                <div class="drawer-name">&#23545;&#35805;</div>
+                <div class="drawer-title-row">
+                    <div class="drawer-name">&#23545;&#35805;</div>
+                    <button class="new-chat-btn" id="newChatBtn" type="button" aria-label="&#26032;&#24314;&#23545;&#35805;" title="&#26032;&#24314;&#23545;&#35805;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>&#26032;&#23545;&#35805;</span></button>
+                </div>
             </div>
-            <button class="new-chat-btn" id="newChatBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>&#26032;&#23545;&#35805;</span></button>
         </div>
         <input class="search" id="sessionSearch" type="text" placeholder="&#25628;&#32034;&#23545;&#35805;...">
         <span id="sessionCount" hidden></span>

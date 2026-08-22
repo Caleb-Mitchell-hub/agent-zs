@@ -46,6 +46,16 @@ class FrontendChatContractTests(unittest.TestCase):
         self.assertNotIn('.drawer-rail', self.html)
         self.assertNotRegex(self.html, r'<div class="brand">')
 
+    def test_collapsed_drawer_expands_the_chat_workspace(self):
+        self.assertRegex(
+            self.html,
+            r'\.drawer-collapsed \.chat-box,\s*'
+            r'\.drawer-collapsed \.typing,\s*'
+            r'\.drawer-collapsed \.composer,\s*'
+            r'\.drawer-collapsed \.attachment-status\s*\{[^}]*max-width:\s*none;',
+        )
+        self.assertRegex(self.html, r'\.drawer-collapsed \.msg-body\s*\{[^}]*max-width:\s*none;')
+
     def test_editorial_sidebar_and_attachment_control_are_present(self):
         self.assertIn('--drawer-width: 292px', self.html)
         self.assertRegex(self.html, r'\.sidebar\s*\{[^}]*border-right:\s*1px')
@@ -57,6 +67,15 @@ class FrontendChatContractTests(unittest.TestCase):
         self.assertIn('--drawer-width: 292px', self.html)
         self.assertIn('background: #fff', self.html)
         self.assertRegex(self.html, r'\.new-chat-btn,\s*#sessionSearch,\s*#taskTabs,\s*#taskSearch,\s*\.task-add\s*\{\s*display:\s*none;')
+
+    def test_compact_new_chat_control_is_available_in_the_sidebar_header(self):
+        self.assertRegex(
+            self.html,
+            r'<div class="drawer-title-row">\s*'
+            r'<div class="drawer-name">.*?</div>\s*'
+            r'<button class="new-chat-btn" id="newChatBtn"',
+        )
+        self.assertRegex(self.html, r'\.new-chat-btn\s*\{[^}]*display:\s*grid;')
 
 
 if __name__ == "__main__":
