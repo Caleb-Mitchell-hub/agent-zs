@@ -46,6 +46,13 @@ class FrontendChatContractTests(unittest.TestCase):
         self.assertNotIn('.drawer-rail', self.html)
         self.assertNotRegex(self.html, r'<div class="brand">')
 
+    def test_editorial_sidebar_and_attachment_control_are_present(self):
+        self.assertIn('--drawer-width: 392px', self.html)
+        self.assertRegex(self.html, r'\.sidebar\s*\{[^}]*border-right:\s*1px')
+        self.assertIn('class="attach-btn"', self.html)
+        self.assertIn('id="fileInput"', self.html)
+        self.assertIn('id="attachmentStatus"', self.html)
+
 
 if __name__ == "__main__":
     unittest.main()

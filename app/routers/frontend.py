@@ -250,14 +250,132 @@ async def index():
             .msg-body { max-width: 86%; }
             .stat-cards, .year-grid { grid-template-columns: repeat(2, 1fr); }
         }
+        /* The accepted concept uses an open editorial workspace instead of a card drawer. */
+        :root {
+            --bg: #f8f7f2;
+            --panel: #fffefa;
+            --panel-strong: #fffefa;
+            --text: #17243b;
+            --muted: #718096;
+            --faint: #8795aa;
+            --line: #dfe5ed;
+            --line-strong: #c7d2df;
+            --blue: #2f6bff;
+            --blue-dark: #1f4fd2;
+            --green: #20a99a;
+            --amber: #e5a13d;
+            --red: #f47d72;
+            --drawer-width: 392px;
+            --shadow: none;
+        }
+        body { background: radial-gradient(circle at 72% 10%, rgba(235, 242, 255, .72), transparent 38%), var(--bg); }
+        .sidebar {
+            inset: 0 auto 0 0;
+            width: var(--drawer-width);
+            padding: 0;
+            background: rgba(248,247,242,.96);
+            border: 0;
+            border-right: 1px solid var(--line-strong);
+            border-radius: 0;
+            box-shadow: none;
+            backdrop-filter: none;
+        }
+        .drawer-collapsed .sidebar { transform: translateX(-100%); opacity: 0; }
+        .sidebar-header { padding: 34px 42px 20px; border-bottom: 0; }
+        .drawer-heading { margin-bottom: 24px; }
+        .brand-mark { display: none; }
+        .drawer-name { font-size: 22px; font-weight: 750; letter-spacing: -.04em; }
+        .drawer-name small { display: none; }
+        .drawer-toggle { width: 30px; height: 30px; }
+        .new-chat-btn { width: auto; padding: 0; justify-content: flex-start; color: var(--blue); background: transparent; border-radius: 0; box-shadow: none; font-size: 14px; font-weight: 700; }
+        .new-chat-btn svg { width: 15px; height: 15px; }
+        .search, .task-input { background: transparent; border: 0; border-bottom: 1px solid var(--line-strong); border-radius: 0; }
+        .search { margin: 0 42px 12px; width: calc(100% - 84px); padding: 10px 0; }
+        .search:focus, .task-input:focus { border-color: var(--blue); box-shadow: none; }
+        .session-list { flex: 1 1 52%; padding: 8px 42px 18px; }
+        .session-group-head { padding: 14px 0 8px; color: var(--faint); border-bottom: 1px solid var(--line); font-size: 12px; }
+        .session-group-head .caret { width: 12px; }
+        .session-item { margin: 0; padding: 14px 0 14px 12px; border: 0; border-left: 3px solid transparent; border-radius: 0; gap: 12px; align-items: baseline; }
+        .session-item:hover { background: transparent; border-right: 0; border-top: 0; border-bottom: 0; }
+        .session-item.active { background: transparent; border-color: transparent; border-left-color: var(--blue); }
+        .session-title { font-size: 14px; font-weight: 650; }
+        .session-meta { margin-top: 5px; color: var(--faint); font-size: 11px; }
+        .icon-btn { border-radius: 0; }
+        .task-panel { flex: 1 1 48%; padding: 22px 42px 28px; border-top: 1px solid var(--line-strong); }
+        .task-head { padding: 0 0 14px; font-size: 18px; letter-spacing: -.03em; }
+        .task-tabs { display: flex; gap: 20px; padding: 0 0 12px; }
+        .task-tab { padding: 5px 0 8px; color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; }
+        .task-tab.active { color: var(--blue); background: transparent; border-color: var(--blue); font-weight: 700; }
+        .task-add { padding: 0 0 10px; }
+        .task-input { padding: 9px 0; font-size: 12px; }
+        .task-add-btn { width: 30px; height: 30px; border: 1px solid var(--blue); border-radius: 50%; color: var(--blue); background: transparent; font-weight: 600; }
+        .task-list { padding: 0; }
+        .task-group-head { padding: 14px 0 7px; color: var(--faint); font-size: 11px; }
+        .task-item { padding: 9px 0; border-radius: 0; font-size: 13px; }
+        .dot { width: 7px; height: 7px; }
+        .pending { background: var(--blue); }
+        .doing { background: var(--amber); }
+        .done { background: var(--green); }
+        .overdue { background: var(--red); }
+        .main { background: transparent; }
+        .topbar { height: 72px; justify-content: flex-end; padding: 0 52px; background: transparent; border-bottom: 1px solid var(--line); backdrop-filter: none; }
+        .drawer-open .topbar { padding-left: calc(var(--drawer-width) + 52px); }
+        .drawer-collapsed .topbar { padding-left: 18px; }
+        .drawer-open-btn { width: 34px; height: 34px; color: var(--blue); background: transparent; border-radius: 0; }
+        .nav { gap: 24px; color: var(--text); font-size: 13px; }
+        .nav a { color: var(--text); font-weight: 650; }
+        .nav a:hover, .nav a:focus { color: var(--blue); }
+        .chat-area { max-width: none; width: 100%; margin: 0; padding: 32px 52px 30px; }
+        .drawer-open .chat-area, .drawer-open .calendar-area { max-width: none; width: auto; margin-left: calc(var(--drawer-width) + 58px); margin-right: 52px; }
+        .chat-box { width: 100%; max-width: 970px; margin: 0 auto; padding: 24px 0 46px; }
+        .welcome { padding: 96px 20px; text-align: left; }
+        .welcome h2 { font-size: 22px; font-weight: 650; }
+        .message { gap: 18px; margin-bottom: 48px; }
+        .avatar { width: 58px; height: auto; min-height: 24px; border-radius: 0; color: var(--text); background: transparent; font-size: 13px; font-weight: 700; justify-items: start; }
+        .user .avatar, .assistant .avatar { color: var(--text); background: transparent; border: 0; }
+        .msg-body { max-width: 760px; }
+        .content { padding: 0; border-radius: 0; line-height: 1.9; font-size: 16px; }
+        .user .content { color: var(--text); background: transparent; border: 0; }
+        .assistant .content { padding: 24px 0 0; border-top: 2px solid var(--blue); }
+        .message-meta { margin-top: 12px; color: var(--faint); }
+        .message-action:hover, .message-action.selected { color: var(--blue); background: transparent; }
+        .typing { max-width: 970px; width: 100%; margin: 0 auto 18px; padding: 0 0 8px; border: 0; border-radius: 0; color: var(--muted); background: transparent; }
+        .composer { max-width: 970px; width: 100%; margin: 0 auto; gap: 12px; padding: 14px 0 0; background: transparent; border: 0; border-top: 1px solid var(--line-strong); border-radius: 0; box-shadow: none; }
+        .composer-input { padding: 8px 0; font-size: 16px; background: transparent; border: 0; }
+        .composer-input:focus { border: 0; box-shadow: none; }
+        .attach-btn, .send-btn { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; color: var(--blue); background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+        .attach-btn { color: var(--muted); }
+        .attach-btn:hover, .attach-btn.selected { color: var(--blue); }
+        .attach-btn svg { width: 19px; height: 19px; }
+        .send-btn svg { width: 20px; height: 20px; }
+        .send-btn:disabled { color: var(--faint); background: transparent; box-shadow: none; }
+        .attachment-status { max-width: 970px; width: 100%; margin: 0 auto 8px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+        .attachment-status[hidden] { display: none; }
+        .attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .attachment-clear { width: 20px; height: 20px; color: var(--faint); background: transparent; font-size: 18px; line-height: 1; }
+        .attachment-clear:hover { color: var(--red); }
+        @media (max-width: 760px) {
+            .sidebar { inset: 0 auto 0 0; width: min(var(--drawer-width), calc(100vw - 28px)); border-radius: 0; }
+            .sidebar-header { padding: 24px 26px 18px; }
+            .search { margin-left: 26px; margin-right: 26px; width: calc(100% - 52px); }
+            .session-list, .task-panel { padding-left: 26px; padding-right: 26px; }
+            .topbar, .drawer-open .topbar, .drawer-collapsed .topbar { padding: 0 18px; }
+            .nav { gap: 12px; }
+            .nav #userNameDisplay, .nav #logoutBtn { display: none; }
+            .chat-area, .drawer-open .chat-area, .drawer-open .calendar-area { width: 100%; margin: 0; padding: 22px 18px 22px; }
+            .chat-box, .typing, .composer, .attachment-status { max-width: 100%; }
+            .message { gap: 10px; margin-bottom: 34px; }
+            .avatar { width: 38px; }
+            .content { font-size: 14px; }
+            .assistant .content { padding-top: 16px; }
+        }
     </style>
 </head>
 <body class="drawer-open">
     <aside class="sidebar" id="sidebar" aria-label="&#23545;&#35805;&#19982;&#20219;&#21153;&#21015;&#34920;">
         <div class="sidebar-header">
             <div class="drawer-heading">
-                <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3.5 4.8 7.7v8.6l7.2 4.2 7.2-4.2V7.7L12 3.5Z"/><path d="m7.7 9.4 4.3 2.5 4.3-2.5M12 11.9v5.1"/></svg></div>
-                <div class="drawer-name">Agent-Zs<small>&#20225;&#19994;&#26234;&#33021;&#21161;&#25163;</small></div>
+                <div class="drawer-name">&#23545;&#35805;</div>
                 <button class="icon-btn drawer-toggle" id="drawerToggle" type="button" aria-label="&#25910;&#36215;&#20391;&#36793;&#26639;" title="&#25910;&#36215;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
             </div>
             <button class="new-chat-btn" id="newChatBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>&#26032;&#23545;&#35805;</span></button>
@@ -302,8 +420,11 @@ async def index():
                 <div class="welcome"><h2>&#27426;&#36814;&#20351;&#29992; Agent-Zs</h2><p>&#36755;&#20837;&#38382;&#39064;&#25110;&#36873;&#25321;&#24038;&#20391;&#21382;&#21490;&#23545;&#35805;&#24320;&#22987;&#12290;</p></div>
             </div>
             <div class="typing" id="typing"><span class="typing-dots"><span></span><span></span><span></span></span><span id="typingLabel">AI &#27491;&#22312;&#29983;&#25104;</span></div>
+            <div class="attachment-status" id="attachmentStatus" hidden><span class="attachment-name" id="attachmentName"></span><button class="attachment-clear" id="attachmentClear" type="button" aria-label="&#31227;&#38500;&#38468;&#20214;" title="&#31227;&#38500;&#38468;&#20214;">&times;</button></div>
             <div class="composer">
                 <input class="composer-input" id="input" type="text" placeholder="&#36755;&#20837;&#20320;&#30340;&#38382;&#39064;...">
+                <input id="fileInput" type="file" hidden>
+                <button class="attach-btn" id="attachBtn" type="button" aria-label="&#19978;&#20256;&#25991;&#20214;" title="&#19978;&#20256;&#25991;&#20214;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.4-8.4"/></svg></button>
                 <button class="send-btn" id="sendBtn" aria-label="&#21457;&#36865;" title="&#21457;&#36865;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 16 8-16 8 3.5-8L4 4Z"/><path d="M7.5 12H20"/></svg></button>
             </div>
         </section>
@@ -387,7 +508,13 @@ async def index():
         const typing = document.getElementById('typing');
         const typingLabel = document.getElementById('typingLabel');
         const sendBtn = document.getElementById('sendBtn');
+        const attachBtn = document.getElementById('attachBtn');
+        const fileInput = document.getElementById('fileInput');
+        const attachmentStatus = document.getElementById('attachmentStatus');
+        const attachmentName = document.getElementById('attachmentName');
+        const attachmentClear = document.getElementById('attachmentClear');
         const sessionList = document.getElementById('sessionList');
+        let selectedFile = null;
 
         function t(s) { return s; }
         const text = {
@@ -681,6 +808,27 @@ async def index():
                     document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
                 }
             } catch (e) {}
+        }
+        function formatFileSize(bytes) {
+            if (!bytes) return '0 B';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+        function setSelectedFile(file) {
+            selectedFile = file || null;
+            if (!selectedFile) {
+                attachmentName.textContent = '';
+                attachmentStatus.hidden = true;
+                attachBtn.classList.remove('selected');
+                fileInput.value = '';
+                attachBtn.title = '\u4e0a\u4f20\u6587\u4ef6';
+                return;
+            }
+            attachmentName.textContent = selectedFile.name + ' · ' + formatFileSize(selectedFile.size);
+            attachmentStatus.hidden = false;
+            attachBtn.classList.add('selected');
+            attachBtn.title = '\u5df2\u9009\u62e9\uff1a' + selectedFile.name;
         }
         function updateSessionCount(count) {
             const countEl = document.getElementById('sessionCount');
@@ -1045,6 +1193,9 @@ async def index():
         document.getElementById('drawerRailBtn').addEventListener('click', () => setDrawerCollapsed(false));
         document.getElementById('newChatBtn').addEventListener('click', newChat);
         document.getElementById('sendBtn').addEventListener('click', send);
+        attachBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', event => setSelectedFile(event.target.files[0] || null));
+        attachmentClear.addEventListener('click', () => setSelectedFile(null));
         input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
         document.getElementById('logoutBtn').addEventListener('click', () => {
             localStorage.removeItem('agent_zs_token');
