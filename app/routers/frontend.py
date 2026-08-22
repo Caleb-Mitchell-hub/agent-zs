@@ -143,8 +143,10 @@ async def index():
             backdrop-filter: blur(16px);
             transition: padding-left .28s ease;
         }
-        .drawer-collapsed .topbar { padding-left: 96px; }
-        .brand { font-size: 16px; font-weight: 800; }
+        .drawer-collapsed .topbar { padding-left: 18px; }
+        .drawer-open-btn { display: none; width: 36px; height: 36px; color: var(--blue); background: rgba(47,102,246,.08); border-radius: 11px; }
+        .drawer-collapsed .drawer-open-btn { display: grid; place-items: center; }
+        .drawer-open-btn svg { width: 18px; height: 18px; }
         .nav { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
         .nav a { color: var(--blue); text-decoration: none; font-weight: 650; cursor: pointer; }
         .embedded-mode #userNameDisplay, .embedded-mode #logoutBtn { display: none; }
@@ -238,20 +240,15 @@ async def index():
         .mc-cell { aspect-ratio: 1; display: grid; place-items: center; border-radius: 4px; background: #edf2f7; color: var(--faint); font-size: 9px; }
         .mc-cell.has { color: var(--blue-dark); background: #dbeafe; font-weight: 800; }
         .mc-cell.today { color: #fff; background: var(--blue); }
-        .drawer-rail { position: fixed; z-index: 35; left: 18px; top: 24px; bottom: 24px; width: 58px; display: none; flex-direction: column; align-items: center; padding: 12px 0; border: 1px solid rgba(255,255,255,.9); border-radius: 18px; background: rgba(255,255,255,.82); box-shadow: 0 18px 40px rgba(43,64,105,.12); backdrop-filter: blur(18px); }
-        .drawer-collapsed .drawer-rail { display: flex; }
-        .drawer-rail button { width: 38px; height: 38px; display: grid; place-items: center; color: var(--blue); background: rgba(47,102,246,.08); border-radius: 11px; }
-        .drawer-rail svg { width: 18px; height: 18px; }
         .toast { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: none; max-width: 340px; padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--text); font-size: 13px; }
         @media (max-width: 760px) {
             .sidebar { inset: 12px; width: auto; border-radius: 22px; }
-            .topbar, .drawer-collapsed .topbar { padding: 0 16px 0 88px; }
+            .topbar, .drawer-collapsed .topbar { padding: 0 16px; }
             .nav #userNameDisplay, .nav #logoutBtn { display: none; }
             .nav { gap: 9px; }
             .chat-area, .drawer-open .chat-area, .drawer-open .calendar-area { max-width: 100%; width: 100%; margin: 0; padding: 14px; }
             .msg-body { max-width: 86%; }
             .stat-cards, .year-grid { grid-template-columns: repeat(2, 1fr); }
-            .drawer-rail { left: 12px; top: 18px; bottom: 18px; }
         }
     </style>
 </head>
@@ -284,12 +281,9 @@ async def index():
             <div class="task-list" id="taskList"></div>
         </section>
     </aside>
-    <div class="drawer-rail" id="drawerRail" aria-label="&#25910;&#32553;&#30340;&#20391;&#36793;&#26639;">
-        <button id="drawerRailBtn" type="button" aria-label="&#23637;&#24320;&#20391;&#36793;&#26639;" title="&#23637;&#24320;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    </div>
     <main class="main">
         <header class="topbar">
-            <div class="brand">Agent-Zs</div>
+            <button class="drawer-open-btn" id="drawerRailBtn" type="button" aria-label="&#23637;&#24320;&#20391;&#36793;&#26639;" title="&#23637;&#24320;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
             <nav class="nav">
                 <a id="chatNav">&#32842;&#22825;</a>
                 <a id="calendarNav">&#24037;&#20316;&#35760;&#24405;<span class="badge" id="remindBadge">&#25552;&#37266;</span></a>

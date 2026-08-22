@@ -38,6 +38,14 @@ class FrontendChatContractTests(unittest.TestCase):
         self.assertIn("loadCachedConversation", self.html)
         self.assertIn("mergeCachedSessions", self.html)
 
+    def test_collapsed_drawer_uses_topbar_control_without_brand_or_rail(self):
+        topbar = re.search(r'<header class="topbar">(.*?)</header>', self.html, re.DOTALL)
+        self.assertIsNotNone(topbar)
+        self.assertIn('id="drawerRailBtn"', topbar.group(1))
+        self.assertNotIn('id="drawerRail"', self.html)
+        self.assertNotIn('.drawer-rail', self.html)
+        self.assertNotRegex(self.html, r'<div class="brand">')
+
 
 if __name__ == "__main__":
     unittest.main()
