@@ -128,6 +128,7 @@ async def index():
         .brand { font-size: 16px; font-weight: 800; }
         .nav { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
         .nav a { color: var(--blue); text-decoration: none; font-weight: 650; cursor: pointer; }
+        .embedded-mode #userNameDisplay, .embedded-mode #logoutBtn { display: none; }
         .badge { display: none; margin-left: 4px; padding: 1px 6px; border-radius: 999px; color: #fff; background: var(--red); font-size: 10px; }
         .chat-area, .calendar-area { flex: 1; min-height: 0; overflow: hidden; }
         .chat-area { display: flex; flex-direction: column; max-width: 930px; width: 100%; margin: 0 auto; padding: 18px 22px 20px; }
@@ -301,12 +302,45 @@ async def index():
     </main>
     <div class="toast" id="remindToast"></div>
     <script>
-        const token = localStorage.getItem('token');
-        if (!token) window.location.href = '/login';
+        const params = new URLSearchParams(window.location.search);
+        const incomingToken = params.get('token');
+        const incomingApiBase = params.get('api_base');
 
-        const API_QUERY_STREAM = '/api/v1/query/stream';
-        const API_SESSIONS = '/api/v1/sessions';
-        const API_TASKS = '/api/v1/tasks';
+        function resolveAppBase() {
+            return window.location.pathname.startsWith('/agent-ai') ? '/agent-ai/' : '/';
+        }
+
+        function resolveApiBase() {
+            if (incomingApiBase) return incomingApiBase.replace(/\/$/, '');
+            if (window.location.pathname.startsWith('/agent-ai')) return '/agent-ai-api';
+            return '/api/v1';
+        }
+
+        const APP_BASE = resolveAppBase();
+        document.documentElement.classList.toggle('embedded-mode', window.self !== window.top || window.location.pathname.startsWith('/agent-ai'));
+        const API_BASE = resolveApiBase();
+        const LOGIN_PATH = `${APP_BASE}login`;
+
+        if (incomingToken) {
+            localStorage.setItem('agent_zs_token', incomingToken);
+            params.delete('token');
+            const cleanQuery = params.toString();
+            history.replaceState({}, document.title, window.location.pathname + (cleanQuery ? `?${cleanQuery}` : ''));
+        }
+
+        let token = localStorage.getItem('agent_zs_token');
+        if (!token) window.location.href = LOGIN_PATH;
+
+        window.addEventListener('message', event => {
+            if (event.origin !== window.location.origin) return;
+            if (!event.data || event.data.type !== 'ERP_AGENT_ZS_SSO_TOKEN' || !event.data.token) return;
+            localStorage.setItem('agent_zs_token', event.data.token);
+            token = event.data.token;
+        });
+
+        const API_QUERY_STREAM = `${API_BASE}/query/stream`;
+        const API_SESSIONS = `${API_BASE}/sessions`;
+        const API_TASKS = `${API_BASE}/tasks`;
         let activeSessionId = localStorage.getItem('activeSessionId') || '';
         let taskFilter = 'all';
         let currentTasks = [];
@@ -837,7 +871,12 @@ async def index():
         document.getElementById('newChatBtn').addEventListener('click', newChat);
         document.getElementById('sendBtn').addEventListener('click', send);
         input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
-        document.getElementById('logoutBtn').addEventListener('click', () => { localStorage.removeItem('token'); localStorage.removeItem('userName'); localStorage.removeItem('activeSessionId'); window.location.href = '/login'; });
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('agent_zs_token');
+            localStorage.removeItem('userName');
+            localStorage.removeItem('activeSessionId');
+            window.location.href = LOGIN_PATH;
+        });
         document.getElementById('chatNav').addEventListener('click', () => switchMainView('chat'));
         document.getElementById('calendarNav').addEventListener('click', () => switchMainView('calendar'));
         document.getElementById('sessionSearch').addEventListener('input', loadSessionList);
@@ -950,7 +989,19 @@ async def login_page():
         <div class="error" id="errorMsg"></div>
     </form>
     <script>
-        if (localStorage.getItem('token')) window.location.href = '/';
+        function resolveAppBase() {
+            return window.location.pathname.startsWith('/agent-ai') ? '/agent-ai/' : '/';
+        }
+
+        function resolveApiBase() {
+            return window.location.pathname.startsWith('/agent-ai') ? '/agent-ai-api' : '/api/v1';
+        }
+
+        const APP_BASE = resolveAppBase();
+        document.documentElement.classList.toggle('embedded-mode', window.self !== window.top || window.location.pathname.startsWith('/agent-ai'));
+        const API_BASE = resolveApiBase();
+
+        if (localStorage.getItem('agent_zs_token')) window.location.href = APP_BASE;
         const form = document.getElementById('loginForm');
         const usernameEl = document.getElementById('username');
         const passwordEl = document.getElementById('password');
@@ -969,16 +1020,16 @@ async def login_page():
             loginBtn.textContent = '\u767b\u5f55\u4e2d...';
             errorMsg.classList.remove('show');
             try {
-                const res = await fetch('/api/v1/auth/login', {
+                const res = await fetch(`${API_BASE}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password })
                 });
                 const data = await res.json();
                 if (res.ok && data.status === 'ok') {
-                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('agent_zs_token', data.token);
                     localStorage.setItem('userName', data.user.real_name || data.user.username);
-                    window.location.href = '/';
+                    window.location.href = APP_BASE;
                 } else {
                     showError(data.message || '\u7528\u6237\u540d\u6216\u5bc6\u7801\u9519\u8bef');
                 }
