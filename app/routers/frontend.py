@@ -18,51 +18,67 @@ async def index():
     <title>Agent-Zs</title>
     <style>
         :root {
-            --bg: #f5f7fb;
-            --panel: rgba(255, 255, 255, 0.86);
+            --bg: #f3f6fc;
+            --panel: rgba(255, 255, 255, 0.88);
             --panel-strong: #fff;
-            --text: #111827;
-            --muted: #6b7280;
-            --faint: #9ca3af;
-            --line: rgba(148, 163, 184, 0.28);
-            --blue: #2563eb;
-            --blue-dark: #1d4ed8;
-            --green: #16a34a;
-            --amber: #d97706;
-            --red: #dc2626;
-            --shadow: 0 18px 40px rgba(15, 23, 42, 0.10);
+            --text: #17223a;
+            --muted: #6f7d96;
+            --faint: #9aa7bd;
+            --line: rgba(151, 166, 193, 0.28);
+            --blue: #2f66f6;
+            --blue-dark: #2352d1;
+            --green: #1e9d64;
+            --amber: #d8892d;
+            --red: #d95b64;
+            --drawer-width: 344px;
+            --shadow: 0 24px 60px rgba(43, 64, 105, 0.14);
         }
         * { box-sizing: border-box; }
         body {
             margin: 0;
             height: 100vh;
-            display: flex;
             overflow: hidden;
             color: var(--text);
             font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: linear-gradient(180deg, #fbfdff 0%, #eef3fb 100%);
+            background:
+                radial-gradient(circle at 75% 8%, rgba(230, 238, 255, .95), transparent 34%),
+                linear-gradient(135deg, #fafdff 0%, var(--bg) 56%, #eaf1ff 100%);
         }
         button, input, select { font: inherit; }
         button { border: 0; cursor: pointer; }
         .sidebar {
-            width: 320px;
-            min-width: 320px;
+            position: fixed;
+            z-index: 30;
+            inset: 18px auto 18px 18px;
+            width: var(--drawer-width);
+            min-width: 0;
             display: flex;
             flex-direction: column;
-            background: rgba(255,255,255,0.78);
-            border-right: 1px solid var(--line);
-            backdrop-filter: blur(16px);
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(255, 255, 255, .86);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(22px);
+            transition: transform .28s ease, opacity .2s ease;
         }
-        .sidebar-header { padding: 18px 16px 14px; border-bottom: 1px solid var(--line); }
-        .side-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-weight: 700; font-size: 14px; }
+        .drawer-collapsed .sidebar { transform: translateX(calc(-100% - 30px)); opacity: 0; pointer-events: none; }
+        .sidebar-header { padding: 20px 18px 16px; border-bottom: 1px solid var(--line); }
+        .drawer-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+        .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; color: #fff; background: linear-gradient(145deg, #2d6cff, #3f55d8); box-shadow: 0 9px 18px rgba(47, 102, 246, .22); }
+        .brand-mark svg { width: 20px; height: 20px; }
+        .drawer-name { min-width: 0; flex: 1; font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
+        .drawer-name small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+        .drawer-toggle { width: 32px; height: 32px; }
         .new-chat-btn, .send-btn {
             color: #fff;
-            background: linear-gradient(135deg, var(--blue), #4f46e5);
-            border-radius: 8px;
+            background: linear-gradient(135deg, var(--blue), #4660e9);
+            border-radius: 12px;
             font-weight: 700;
             box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
         }
-        .new-chat-btn { width: 100%; padding: 11px 14px; }
+        .new-chat-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 14px; }
+        .new-chat-btn svg { width: 16px; height: 16px; }
         .search, .task-input, .composer-input {
             width: 100%;
             color: var(--text);
@@ -71,9 +87,9 @@ async def index():
             border-radius: 8px;
             outline: 0;
         }
-        .search { margin: 12px 12px 8px; width: calc(100% - 24px); padding: 9px 12px; font-size: 12px; }
+        .search { margin: 14px 16px 8px; width: calc(100% - 32px); padding: 10px 12px; font-size: 12px; border-radius: 12px; }
         .search:focus, .task-input:focus, .composer-input:focus { border-color: rgba(37,99,235,.45); box-shadow: 0 0 0 3px rgba(37,99,235,.10); }
-        .session-list { flex: 1 1 46%; overflow-y: auto; padding: 4px 8px 12px; min-height: 0; }
+        .session-list { flex: 1 1 46%; overflow-y: auto; padding: 4px 10px 14px; min-height: 0; }
         .session-group-head, .task-group-head { padding: 10px 10px 6px; color: var(--faint); font-size: 11px; letter-spacing: 0; }
         .session-group-head { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 5px; }
         .session-group-head:hover { color: var(--muted); }
@@ -85,8 +101,8 @@ async def index():
             gap: 10px;
             align-items: center;
             margin: 0 2px 6px;
-            padding: 11px 10px;
-            border-radius: 8px;
+            padding: 12px 10px;
+            border-radius: 12px;
             border: 1px solid transparent;
         }
         .session-item:hover { background: rgba(255,255,255,.85); border-color: var(--line); }
@@ -94,60 +110,64 @@ async def index():
         .session-info { min-width: 0; flex: 1; }
         .session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; }
         .session-meta { margin-top: 3px; color: var(--faint); font-size: 11px; }
-        .icon-btn { width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); background: transparent; border-radius: 6px; }
+        .icon-btn { width: 30px; height: 30px; display: grid; place-items: center; color: var(--muted); background: transparent; border-radius: 9px; }
+        .icon-btn svg { width: 17px; height: 17px; }
         .icon-btn:hover { color: var(--blue); background: rgba(37,99,235,.08); }
         .danger:hover { color: var(--red); background: rgba(220,38,38,.08); }
         .empty { padding: 34px 12px; text-align: center; color: var(--faint); font-size: 13px; }
         .task-panel { flex: 1 1 54%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
-        .task-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px 8px; font-size: 13px; font-weight: 700; }
-        .task-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 0 12px 9px; }
-        .task-tab { padding: 7px 0; color: var(--muted); background: rgba(255,255,255,.75); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+        .task-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 8px; font-size: 13px; font-weight: 800; }
+        .task-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 0 16px 9px; }
+        .task-tab { padding: 7px 0; color: var(--muted); background: rgba(255,255,255,.75); border: 1px solid var(--line); border-radius: 9px; font-size: 12px; }
         .task-tab.active { color: var(--blue); background: rgba(37,99,235,.08); border-color: rgba(37,99,235,.24); font-weight: 700; }
-        .task-add { display: flex; gap: 6px; padding: 0 12px 8px; }
+        .task-add { display: flex; gap: 6px; padding: 0 16px 8px; }
         .task-input { padding: 9px 10px; font-size: 12px; }
-        .task-add-btn { width: 38px; border-radius: 8px; color: #fff; background: var(--blue); font-weight: 800; }
-        .task-list { overflow-y: auto; padding: 0 8px 12px; }
-        .task-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 8px; font-size: 12px; }
+        .task-add-btn { width: 38px; border-radius: 10px; color: #fff; background: var(--blue); font-weight: 800; }
+        .task-list { overflow-y: auto; padding: 0 10px 14px; }
+        .task-item { display: flex; align-items: center; gap: 9px; padding: 10px; border-radius: 10px; font-size: 12px; }
         .task-item:hover { background: rgba(255,255,255,.8); }
         .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
         .pending { background: var(--blue); }
         .doing { background: var(--amber); }
         .done { background: var(--green); }
         .overdue { background: var(--red); }
-        .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .main { width: 100%; min-width: 0; display: flex; flex-direction: column; }
         .topbar {
-            height: 58px;
+            height: 72px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 24px;
-            background: rgba(255,255,255,.64);
+            padding: 0 34px 0 390px;
+            background: rgba(255,255,255,.42);
             border-bottom: 1px solid var(--line);
             backdrop-filter: blur(16px);
+            transition: padding-left .28s ease;
         }
+        .drawer-collapsed .topbar { padding-left: 96px; }
         .brand { font-size: 16px; font-weight: 800; }
         .nav { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
         .nav a { color: var(--blue); text-decoration: none; font-weight: 650; cursor: pointer; }
         .embedded-mode #userNameDisplay, .embedded-mode #logoutBtn { display: none; }
         .badge { display: none; margin-left: 4px; padding: 1px 6px; border-radius: 999px; color: #fff; background: var(--red); font-size: 10px; }
         .chat-area, .calendar-area { flex: 1; min-height: 0; overflow: hidden; }
-        .chat-area { display: flex; flex-direction: column; max-width: 930px; width: 100%; margin: 0 auto; padding: 18px 22px 20px; }
-        .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .chat-area { display: flex; flex-direction: column; max-width: 1280px; width: 100%; margin: 0 auto; padding: 24px 30px 28px; }
+        .drawer-open .chat-area, .drawer-open .calendar-area { max-width: none; width: auto; margin-left: calc(var(--drawer-width) + 120px); margin-right: 34px; }
+        .quick-actions { display: none; }
         .quick-btn { padding: 8px 13px; color: var(--muted); background: rgba(255,255,255,.82); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
         .quick-btn:hover { color: var(--blue); border-color: rgba(37,99,235,.25); }
-        .chat-box { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 4px 14px 0; }
+        .chat-box { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 4px 26px 0; }
         .welcome { padding: 78px 20px; text-align: center; color: var(--muted); }
         .welcome h2 { margin: 0 0 10px; font-size: 24px; color: var(--text); }
-        .message { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 16px; }
+        .message { display: flex; gap: 14px; align-items: flex-start; margin: 0 0 30px; }
         .message.user { flex-direction: row-reverse; }
-        .avatar { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 800; }
-        .user .avatar { background: linear-gradient(135deg, var(--blue), #4f46e5); }
-        .assistant .avatar { background: linear-gradient(135deg, #111827, #374151); }
-        .msg-body { max-width: min(790px, 82%); display: flex; flex-direction: column; min-width: 0; }
+        .avatar { width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 800; }
+        .user .avatar { background: linear-gradient(135deg, var(--blue), #4660e9); }
+        .assistant .avatar { color: var(--blue); background: rgba(255,255,255,.82); border: 1px solid rgba(47,102,246,.18); }
+        .msg-body { max-width: min(860px, 84%); display: flex; flex-direction: column; min-width: 0; }
         .user .msg-body { align-items: flex-end; }
-        .content { padding: 12px 15px; border-radius: 8px; line-height: 1.72; font-size: 14px; overflow-wrap: anywhere; }
-        .user .content { color: #fff; background: linear-gradient(135deg, var(--blue), #4f46e5); }
-        .assistant .content { background: var(--panel-strong); border: 1px solid var(--line); box-shadow: var(--shadow); }
+        .content { padding: 15px 18px; border-radius: 18px; line-height: 1.78; font-size: 14px; overflow-wrap: anywhere; }
+        .user .content { color: var(--text); background: rgba(229, 237, 255, .92); border: 1px solid rgba(47,102,246,.08); }
+        .assistant .content { padding: 1px 4px; background: transparent; border: 0; box-shadow: none; }
         .content p { margin: 0 0 .78em; }
         .content p:last-child { margin-bottom: 0; }
         .content h1, .content h2, .content h3 { margin: .95em 0 .5em; line-height: 1.35; }
@@ -162,18 +182,24 @@ async def index():
         table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12.5px; }
         th, td { padding: 8px 10px; border: 1px solid var(--line); text-align: left; white-space: nowrap; }
         th { background: rgba(37,99,235,.06); }
-        .copy-btn { align-self: flex-end; margin-top: 4px; color: var(--faint); background: transparent; border-radius: 6px; padding: 4px 6px; }
-        .copy-btn:hover { color: var(--blue); background: rgba(37,99,235,.08); }
-        .typing { display: none; align-items: center; gap: 9px; width: fit-content; margin: 0 0 12px 46px; padding: 9px 13px; border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.84); border: 1px solid var(--line); font-size: 12.5px; }
+        .message-meta { display: flex; align-items: center; gap: 5px; min-height: 28px; margin-top: 7px; color: var(--faint); font-size: 11px; }
+        .user .message-meta { justify-content: flex-end; }
+        .message-action { width: 28px; height: 28px; display: grid; place-items: center; color: var(--faint); background: transparent; border-radius: 8px; }
+        .message-action svg { width: 16px; height: 16px; }
+        .message-action:hover, .message-action.selected { color: var(--blue); background: rgba(47,102,246,.08); }
+        .message-time { padding: 0 5px; }
+        .typing { display: none; align-items: center; gap: 9px; width: fit-content; margin: 0 0 14px 52px; padding: 9px 13px; border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.84); border: 1px solid var(--line); font-size: 12.5px; }
         .typing.show { display: inline-flex; }
         .typing-dots { display: inline-flex; gap: 4px; }
         .typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite ease-in-out; }
         .typing-dots span:nth-child(2) { animation-delay: .15s; }
         .typing-dots span:nth-child(3) { animation-delay: .3s; }
         @keyframes pulse { 0%, 80%, 100% { opacity: .32; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
-        .composer { display: flex; gap: 10px; align-items: center; }
-        .composer-input { padding: 13px 15px; }
-        .send-btn { padding: 13px 20px; border-radius: 8px; }
+        .composer { display: flex; gap: 10px; align-items: center; padding: 9px 10px 9px 14px; background: rgba(255,255,255,.86); border: 1px solid rgba(151,166,193,.32); border-radius: 20px; box-shadow: 0 14px 34px rgba(43,64,105,.08); }
+        .composer-input { flex: 1; padding: 10px 5px; background: transparent; border: 0; }
+        .composer-input:focus { border: 0; box-shadow: none; }
+        .send-btn { width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border-radius: 13px; }
+        .send-btn svg { width: 19px; height: 19px; }
         .send-btn:disabled { background: #cbd5e1; box-shadow: none; cursor: not-allowed; }
         .error-msg { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 8px; }
         .calendar-area { overflow-y: auto; padding: 18px 22px; }
@@ -212,21 +238,32 @@ async def index():
         .mc-cell { aspect-ratio: 1; display: grid; place-items: center; border-radius: 4px; background: #edf2f7; color: var(--faint); font-size: 9px; }
         .mc-cell.has { color: var(--blue-dark); background: #dbeafe; font-weight: 800; }
         .mc-cell.today { color: #fff; background: var(--blue); }
-        .toast { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: none; max-width: 340px; padding: 12px 14px; border-radius: 8px; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--text); font-size: 13px; }
+        .drawer-rail { position: fixed; z-index: 35; left: 18px; top: 24px; bottom: 24px; width: 58px; display: none; flex-direction: column; align-items: center; padding: 12px 0; border: 1px solid rgba(255,255,255,.9); border-radius: 18px; background: rgba(255,255,255,.82); box-shadow: 0 18px 40px rgba(43,64,105,.12); backdrop-filter: blur(18px); }
+        .drawer-collapsed .drawer-rail { display: flex; }
+        .drawer-rail button { width: 38px; height: 38px; display: grid; place-items: center; color: var(--blue); background: rgba(47,102,246,.08); border-radius: 11px; }
+        .drawer-rail svg { width: 18px; height: 18px; }
+        .toast { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: none; max-width: 340px; padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--text); font-size: 13px; }
         @media (max-width: 760px) {
-            .sidebar { display: none; }
-            .topbar { padding: 0 14px; }
-            .chat-area { padding: 14px; }
+            .sidebar { inset: 12px; width: auto; border-radius: 22px; }
+            .topbar, .drawer-collapsed .topbar { padding: 0 16px 0 88px; }
+            .nav #userNameDisplay, .nav #logoutBtn { display: none; }
+            .nav { gap: 9px; }
+            .chat-area, .drawer-open .chat-area, .drawer-open .calendar-area { max-width: 100%; width: 100%; margin: 0; padding: 14px; }
             .msg-body { max-width: 86%; }
             .stat-cards, .year-grid { grid-template-columns: repeat(2, 1fr); }
+            .drawer-rail { left: 12px; top: 18px; bottom: 18px; }
         }
     </style>
 </head>
-<body>
-    <aside class="sidebar">
+<body class="drawer-open">
+    <aside class="sidebar" id="sidebar" aria-label="&#23545;&#35805;&#19982;&#20219;&#21153;&#21015;&#34920;">
         <div class="sidebar-header">
-            <div class="side-title"><span>&#23545;&#35805;&#21015;&#34920;</span><span id="sessionCount"></span></div>
-            <button class="new-chat-btn" id="newChatBtn">&#65291; &#26032;&#23545;&#35805;</button>
+            <div class="drawer-heading">
+                <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3.5 4.8 7.7v8.6l7.2 4.2 7.2-4.2V7.7L12 3.5Z"/><path d="m7.7 9.4 4.3 2.5 4.3-2.5M12 11.9v5.1"/></svg></div>
+                <div class="drawer-name">Agent-Zs<small>&#20225;&#19994;&#26234;&#33021;&#21161;&#25163;</small></div>
+                <button class="icon-btn drawer-toggle" id="drawerToggle" type="button" aria-label="&#25910;&#36215;&#20391;&#36793;&#26639;" title="&#25910;&#36215;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
+            </div>
+            <button class="new-chat-btn" id="newChatBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>&#26032;&#23545;&#35805;</span></button>
         </div>
         <input class="search" id="sessionSearch" type="text" placeholder="&#25628;&#32034;&#23545;&#35805;...">
         <div class="session-list" id="sessionList"><div class="empty">&#21152;&#36733;&#20013;...</div></div>
@@ -246,6 +283,9 @@ async def index():
             <div class="task-list" id="taskList"></div>
         </section>
     </aside>
+    <div class="drawer-rail" id="drawerRail" aria-label="&#25910;&#32553;&#30340;&#20391;&#36793;&#26639;">
+        <button id="drawerRailBtn" type="button" aria-label="&#23637;&#24320;&#20391;&#36793;&#26639;" title="&#23637;&#24320;&#20391;&#36793;&#26639;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    </div>
     <main class="main">
         <header class="topbar">
             <div class="brand">Agent-Zs</div>
@@ -269,7 +309,7 @@ async def index():
             <div class="typing" id="typing"><span class="typing-dots"><span></span><span></span><span></span></span><span id="typingLabel">AI &#27491;&#22312;&#29983;&#25104;</span></div>
             <div class="composer">
                 <input class="composer-input" id="input" type="text" placeholder="&#36755;&#20837;&#20320;&#30340;&#38382;&#39064;...">
-                <button class="send-btn" id="sendBtn">&#21457;&#36865;</button>
+                <button class="send-btn" id="sendBtn" aria-label="&#21457;&#36865;" title="&#21457;&#36865;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 16 8-16 8 3.5-8L4 4Z"/><path d="M7.5 12H20"/></svg></button>
             </div>
         </section>
         <section class="calendar-area" id="calPanel" style="display:none">
@@ -377,12 +417,32 @@ async def index():
             div.textContent = value == null ? '' : String(value);
             return div.innerHTML;
         }
+        function svgIcon(name) {
+            const paths = {
+                copy: '<rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"></path>',
+                up: '<path d="M7 10v10M7 10 11 3a2 2 0 0 1 3.7 1.4L14 8h5a2 2 0 0 1 2 2l-1 7a3 3 0 0 1-3 3H7"></path><path d="M3 10h4v10H3z"></path>',
+                down: '<path d="M7 14V4M7 14 11 21a2 2 0 0 0 3.7-1.4L14 16h5a2 2 0 0 0 2-2l-1-7a3 3 0 0 0-3-3H7"></path><path d="M3 14h4V4H3z"></path>'
+            };
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[name] || '') + '</svg>';
+        }
+        function formatMessageTime(value) {
+            const date = value ? new Date(value) : new Date();
+            if (Number.isNaN(date.getTime())) return '刚刚';
+            const now = new Date();
+            const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+            const time = pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+            if (sameDay) return '今天 ' + time;
+            return pad2(date.getMonth() + 1) + '月' + pad2(date.getDate()) + '日 ' + time;
+        }
         function generateSessionId() {
             return 'web-' + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
         }
         function getUserDisplayName() {
             try {
-                const payload = JSON.parse(atob(token.split('.')[1]));
+                const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+                const binary = atob(encoded + '='.repeat((4 - encoded.length % 4) % 4));
+                const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+                const payload = JSON.parse(new TextDecoder('utf-8').decode(bytes));
                 return payload.real_name || payload.username || text.unnamed;
             } catch (e) {
                 return text.unnamed;
@@ -527,13 +587,23 @@ async def index():
             }
             return formatMarkdown(assistantRawText(data));
         }
-        function addMessageEl(role, content, extraClass, rawText) {
+        function addMessageEl(role, content, extraClass, rawText, createdAt) {
             const div = document.createElement('div');
             div.className = 'message ' + role + (extraClass ? ' ' + extraClass : '');
-            div.innerHTML = '<div class="avatar">' + (role === 'user' ? '\u6211' : 'AI') + '</div><div class="msg-body"><div class="content">' + content + '</div><button class="copy-btn" title="\u590d\u5236">Copy</button></div>';
+            const actions = role === 'assistant'
+                ? '<button class="message-action" type="button" data-feedback="up" aria-label="\u70b9\u8d5e" title="\u70b9\u8d5e">' + svgIcon('up') + '</button><button class="message-action" type="button" data-feedback="down" aria-label="\u8e29" title="\u8e29">' + svgIcon('down') + '</button>'
+                : '';
+            const copy = rawText ? '<button class="message-action copy-btn" type="button" aria-label="\u590d\u5236" title="\u590d\u5236">' + svgIcon('copy') + '</button>' : '';
+            div.innerHTML = '<div class="avatar">' + (role === 'user' ? '\u6211' : 'AI') + '</div><div class="msg-body"><div class="content">' + content + '</div><div class="message-meta"><span class="message-time">' + escapeHtml(formatMessageTime(createdAt)) + '</span>' + actions + copy + '</div></div>';
             const btn = div.querySelector('.copy-btn');
-            if (rawText) btn.dataset.text = rawText; else btn.style.display = 'none';
-            btn.addEventListener('click', () => copyText(btn.dataset.text || ''));
+            if (btn) {
+                btn.dataset.text = rawText || '';
+                btn.addEventListener('click', () => copyText(btn.dataset.text || ''));
+            }
+            const feedback = Array.from(div.querySelectorAll('[data-feedback]'));
+            feedback.forEach(item => item.addEventListener('click', () => {
+                feedback.forEach(other => other.classList.toggle('selected', other === item && !item.classList.contains('selected')));
+            }));
             chatBox.appendChild(div);
             chatBox.scrollTop = chatBox.scrollHeight;
             return div;
@@ -591,7 +661,7 @@ async def index():
                 chatBox.innerHTML = '';
                 const msgs = data.messages || [];
                 if (!msgs.length) chatBox.innerHTML = '<div class="welcome"><p>' + text.newChat + '</p></div>';
-                msgs.forEach(m => addMessageEl(m.role === 'user' ? 'user' : 'assistant', m.role === 'user' ? escapeHtml(m.content) : formatMarkdown(m.content), 'history', m.content));
+                msgs.forEach(m => addMessageEl(m.role === 'user' ? 'user' : 'assistant', m.role === 'user' ? escapeHtml(m.content) : formatMarkdown(m.content), 'history', m.content, m.created_at || m.createdAt || m.timestamp));
             } catch (e) {
                 chatBox.innerHTML = '<div class="error-msg">\u52a0\u8f7d\u6d88\u606f\u5931\u8d25\uff1a' + escapeHtml(e.message) + '</div>';
             }
@@ -654,7 +724,7 @@ async def index():
             }
             const welcome = chatBox.querySelector('.welcome');
             if (welcome) welcome.remove();
-            addMessage('user', escapeHtml(q), '', q);
+            addMessageEl('user', escapeHtml(q), '', q, new Date().toISOString());
             input.value = '';
             input.disabled = true;
             sendBtn.disabled = true;
@@ -868,6 +938,17 @@ async def index():
             toast._timer = setTimeout(() => { toast.style.display = 'none'; }, 5000);
         }
 
+        function setDrawerCollapsed(collapsed) {
+            document.body.classList.toggle('drawer-collapsed', collapsed);
+            document.body.classList.toggle('drawer-open', !collapsed);
+            localStorage.setItem('agent_zs_drawer_collapsed', collapsed ? '1' : '0');
+            document.getElementById('drawerToggle').setAttribute('aria-expanded', String(!collapsed));
+            document.getElementById('drawerRailBtn').setAttribute('aria-expanded', String(!collapsed));
+        }
+
+        setDrawerCollapsed(localStorage.getItem('agent_zs_drawer_collapsed') === '1');
+        document.getElementById('drawerToggle').addEventListener('click', () => setDrawerCollapsed(true));
+        document.getElementById('drawerRailBtn').addEventListener('click', () => setDrawerCollapsed(false));
         document.getElementById('newChatBtn').addEventListener('click', newChat);
         document.getElementById('sendBtn').addEventListener('click', send);
         input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
